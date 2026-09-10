@@ -1,0 +1,102 @@
+/**
+ * dsh-bg-switch —— 背景状态读写（host 各插件共享；settings 缺失时回退镜像）。
+ *
+ * 状态持久化在 DSH 用户数据区：$DSH_HOME/dsh-bg-switch/state.json
+ * （DSH_HOME 未设置时默认 ~/.dsh；桌面版会指向其自己的 dsh-home）。
+ * 放在用户数据区而不是插件目录旁：插件可能从只读位置加载，
+ * 而这里保证可写、且重启后不丢。
+ *
+ * v0.3：BgMode 枚举移入 src/bg-config.ts（host/client 共用的纯模块），本文件
+ * 只保留文件 IO 与状态形状；BgState 新增 fit/textScheme/loop/mediaKey 可选字段
+ * （settings 命名空间有这些字段时以 settings 为准，state.json 仅作无 settings
+ * provider 的回退镜像，按需写入可选字段）。
+ * v0.4：新增可选 volume（0..1 媒体音量，默认 1；state.json 回退镜像同样按需写入）。
+ */
+
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
+import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
+import type { BgFit, BgMode, BgTextScheme } from './bg-config.ts'
+
+export type { BgMode } from './bg-config.ts'
+
+export interface BgState {
+  /** 当前生效的背景模式。 */
+  mode: BgMode
+  /**
+   * 模式相关载荷：
+   * - color: CSS 颜色值，如 #1e2a78 / rgb(...)
+   * - gradient: 完整 CSS 渐变，如 linear-gradient(135deg, #1e2a78, #2b1055)
+   * - image: http(s) URL / data URI（本地图经 UI 或 bg_apply file 内联）
+   * - video: http(s) 视频 URL；本地视频则为绝对路径（mediaKey 指向路由）
+   * - off: 空
+   */
+  value: string
+  /** 媒体适配（image/video）；color/gradient 无意义。 */
+  fit?: BgFit
+  /** 文字方案偏好；'auto' 由客户端按亮度推断。 */
+  textScheme?: BgTextScheme
+  /** 视频循环（UI 可选持久化）。 */
+  loop?: boolean
+  /** 本地视频的媒体键（host webServer /dsh-bg-media/<key> 按它找文件）。 */
+  mediaKey?: string
+  /** 媒体不透明度 0..1（image/video 渲染用；v0.3.1 新增，缺省 1=不透明）。 */
+  opacity?: number
+  /** 焦点水平定位 0..100（%）（image/video；v0.3.1 新增，缺省 50=居中）。 */
+  posX?: number
+  /** 焦点垂直定位 0..100（%）（image/video；v0.3.1 新增，缺省 50=居中）。 */
+  posY?: number
+  /** 视频音量 0..1（v0.4 新增；缺省 1=满音量）。 */
+  volume?: number
+  /** 更新时间（ISO）。 */
+  updatedAt: string
+}
+
+export const EMPTY_STATE: BgState = { mode: 'off', value: '', updatedAt: '' }
+
+function statePath(): string {
+  return dshHomePath('dsh-bg-switch', 'state.json')
+}
+
+/** 同步读取当前状态；文件缺失或损坏时返回空状态。 */
+export function readState(): BgState {
+  try {
+    const raw = readFileSync(statePath(), 'utf8')
+    const parsed: unknown = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object') {
+      const p = parsed as Record<string, unknown>
+      if (typeof p.mode === 'string' && typeof p.value === 'string') {
+        return {
+          mode: p.mode as BgMode,
+          value: p.value,
+          updatedAt: typeof p.updatedAt === 'string' ? p.updatedAt : '',
+          fit: typeof p.fit === 'string' ? (p.fit as BgFit) : undefined,
+          textScheme: typeof p.textScheme === 'string' ? (p.textScheme as BgTextScheme) : undefined,
+          loop: typeof p.loop === 'boolean' ? p.loop : undefined,
+          mediaKey: typeof p.mediaKey === 'string' ? p.mediaKey : undefined,
+          opacity: typeof p.opacity === 'number' ? p.opacity : undefined,
+          posX: typeof p.posX === 'number' ? p.posX : undefined,
+          posY: typeof p.posY === 'number' ? p.posY : undefined,
+          volume: typeof p.volume === 'number' ? p.volume : undefined,
+        }
+      }
+    }
+  } catch {
+    // 文件不存在 / 损坏 → 视为默认
+  }
+  return EMPTY_STATE
+}
+
+/** 同步写入状态（写临时文件后原子改名；Windows 上 rename 覆盖已有文件会失败，先删再改）。 */
+export function writeState(state: BgState): void {
+  const path = statePath()
+  mkdirSync(dirname(path), { recursive: true })
+  const tmp = `${path}.tmp`
+  writeFileSync(tmp, JSON.stringify(state, null, 2), 'utf8')
+  try {
+    renameSync(tmp, path)
+  } catch {
+    rmSync(path, { force: true })
+    renameSync(tmp, path)
+  }
+}
