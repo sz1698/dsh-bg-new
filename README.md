@@ -15,14 +15,14 @@
 先确认 `dsh` CLI 可用。下面四种方式任选其一，装完后**重启应用**（或重启 `dsh web`）。
 
 ```sh
-# ① 从本地 clone 安装（开发/自用推荐）
+# ① 从 git 直接安装（仓库里已提交构建产物，所以不需要任何构建授权）
+dsh plugin --profile <profile> add git+https://github.com/sz1698/dsh-bg-new.git
+
+# ② 从本地 clone 安装（开发/自用推荐）
 git clone https://github.com/sz1698/dsh-bg-new.git   # 国内镜像：https://gitee.com/iuniko/dsh-bg.git
 cd dsh-bg-new
 npm install && npm run build                    # 产出 lib/client.js + lib/index.js
 dsh plugin --profile <profile> add .
-
-# ② 从 git 直接安装（仓库里已提交构建产物，所以不需要任何构建授权）
-dsh plugin --profile <profile> add git+https://github.com/sz1698/dsh-bg-new.git
 
 # ③ 从 tarball 安装（不发 npm 也能分发）
 npm pack                                        # → dsh-bg-new-0.7.0.tgz
@@ -44,7 +44,7 @@ dsh --profile <profile>
 
 卸载：`dsh plugin --profile <profile> remove dsh-bg-new`。
 
-### 为什么 ② 不需要构建授权
+### 为什么 ① 不需要构建授权
 
 pnpm ≥10 在得到显式允许前拒绝运行 git 依赖的构建脚本，所以「作者只发源码」的插件
 用户得先往 profile 的 `pnpm-workspace.yaml` 加 `allowBuilds`（等于允许该包在安装时
