@@ -45,23 +45,33 @@
 - 重新核对全部对外文档里的路径、路由、命名空间与包名，删掉与发布无关的开发过程记录
   （构建笔记等只留在本地，不进仓库）。
 
-### 修复：`pnpm-lock.yaml` 与 `package.json` 不同步（导致社区实机验证失败）
+### 修复：`pnpm-lock.yaml` 的失同步与镜像地址写死（导致社区实机验证失败）
 
 - **症状**：DSH 插件市场（dshmk.com）的实机验证报 `DEPENDENCY_INSTALL_FAILED`；
   同一原因也让本仓库自己的 GitHub Actions 连续失败。
-- **根因**：`@deepseek-ai/dsh-home-paths` / `dsh-tools` / `schemastery` 早先是
-  `dependencies`，后来改成 `peerDependencies`（`devDependencies` 镜像精确版本），
-  但锁文件自首次提交起从未重新生成 —— `importers` 段里它们仍挂在 `dependencies`。
-  市场验证器（`scripts/validation/linux-sandbox.ts`）只要发现仓库里有
-  `pnpm-lock.yaml` 就跑 `pnpm install --frozen-lockfile --ignore-scripts`，
-  于是立刻以 `ERR_PNPM_OUTDATED_LOCKFILE` 失败。
-- **修法**：用**市场验证器同款的 pnpm 11.19.0** 重新生成锁文件。
-  `lockfileVersion` 仍为 `9.0`（格式没有被 pnpm 11 改动），变化只有把这三个包从
-  `dependencies` 移到 `devDependencies`，与 `package.json` 对齐。
-  已实测 pnpm 10.34.5 与 11.19.0 两个版本都能通过 `--frozen-lockfile`。
-- **防回归**：`.github/workflows/ci.yml` 的安装步骤改为与验证器完全一致
-  （钉 `pnpm@11.19.0` + `--frozen-lockfile --ignore-scripts`），
-  这样锁文件再次失同步时 CI 会先红，而不是等市场验证才发现。
+- **根因有两个，都在锁文件里**：
+  1. **与 `package.json` 失同步**：`@deepseek-ai/dsh-home-paths` / `dsh-tools` /
+     `schemastery` 早先是 `dependencies`，后来改成 `peerDependencies`
+     （`devDependencies` 镜像精确版本），但锁文件自首次提交起从未重新生成 ——
+     `importers` 段里它们仍挂在 `dependencies`，于是 `--frozen-lockfile` 立刻以
+     `ERR_PNPM_OUTDATED_LOCKFILE` 失败。
+  2. **95 个下载地址被写死到 `registry.npmmirror.com`**：`resolution` 段里每条都带
+     `tarball: https://registry.npmmirror.com/...`。本机 pnpm 的 registry 是
+     `http://registry.npm.taobao.org/`（它跳转到 npmmirror），生成锁文件时把这些地址
+     一起写了进去。**本机因为有 pnpm store 缓存所以不下载也能过，而 CI 与市场沙箱都是
+     冷环境，必须去该镜像拉包** —— 这正是"本地全绿、CI/沙箱红"的原因。
+- **触发条件**：市场验证器（`scripts/validation/linux-sandbox.ts`）只要发现仓库里有
+  `pnpm-lock.yaml`，就跑 `pnpm install --frozen-lockfile --ignore-scripts`
+  且超时只有 120 秒。
+- **修法**：**用官方 registry 重新解析**（`--registry=https://registry.npmjs.org/`）
+  生成锁文件。`lockfileVersion` 仍为 `9.0`，`importers` 与 `package.json` 对齐，
+  并且**锁文件里不再含任何硬编码下载地址** —— 下载源由安装方自身的 registry 配置决定，
+  换镜像/换网络都不会再影响安装。
+- **实测**：pnpm 10.34.5 与 11.19.0 均通过 `--frozen-lockfile`；并用**全新空 store**
+  （强制真实下载，模拟 CI / 沙箱的冷缓存）跑通，耗时约 7 秒。
+- **防回归**：`.github/workflows/ci.yml` 的安装步骤与验证器完全一致
+  （`pnpm/action-setup` 钉 `11.19.0` + `--frozen-lockfile --ignore-scripts`），
+  并用冷缓存语义暴露问题；锁文件再次失同步时 CI 会先红，而不是等市场验证才发现。
 
 ---
 
