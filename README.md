@@ -59,6 +59,21 @@ dsh plugin --profile web add .
 dsh --profile web --dump-config     # 应能看到 "# == dsh-bg-new" 这一层
 ```
 
+## 更新
+
+装了之后想升到最新版，在**任何目录**执行：
+
+```sh
+dsh plugin --profile web update dsh-bg-new
+```
+
+然后**重启应用**（或重启 `dsh web`），再刷新浏览器 —— 客户端那一半要等重启后才会换成新版本；浏览器如果还显示旧界面，硬刷新一次（`Ctrl+Shift+R`）。
+
+两点说明：
+
+- 走 git 通道安装时按**提交**解析，不依赖版本号：上游有新提交，`update` 就会拉到最新的那一个（已实测）。
+- 仓库里已提交构建产物，所以**更新同样不需要构建授权**，pnpm 不会要求你写 `allowBuilds`。
+
 ## 卸载
 
 ```sh
