@@ -28,10 +28,19 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Enable pnpm (与市场验证器同版本)
+      # 用 action 直接装指定版本，**不要用 corepack**：
+      # corepack 的 pnpm shim 在这里会在 1 秒内失败（无 packageManager 字段时
+      # shim 的版本解析路径与 prepare --activate 不一致），而市场验证器用的是
+      # 工具链里直接安装的 pnpm 11.19.0，不走 corepack。这里与它保持一致。
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+          run_install: false
+
+      - name: Show toolchain versions
         run: |
-          corepack enable
-          corepack prepare pnpm@11.19.0 --activate
+          node --version
+          pnpm --version
 
       - name: Install (市场验证器同款命令)
         run: pnpm install --frozen-lockfile --ignore-scripts
