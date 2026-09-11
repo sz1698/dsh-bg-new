@@ -4,6 +4,12 @@
 # - `@deepseek-ai/*` 是 peerDependencies（devDependencies 里镜像了一份精确版本），
 #   由公共 registry 解析；若你的环境用的是内网镜像，在这里补 registry 配置。
 # - 验证脚本不需要浏览器：它把 lib/client.js 跑在 Node 的 VM + 假 DOM 里断言。
+#
+# **安装步骤刻意与社区市场验证器对齐**（见 dsh-plugins-store 的
+# `scripts/validation/linux-sandbox.ts`）：那边固定用 pnpm 11.19.0，并按
+# 「有 pnpm-lock.yaml 就跑 --frozen-lockfile」选命令。所以这里也钉同一个 pnpm
+# 版本并加 `--ignore-scripts`，否则锁文件一旦与 package.json 不同步，CI 会绿而
+# 市场实机验证会红（0.7.0 就这么踩过一次：锁文件里这三个包还挂在 dependencies）。
 name: CI
 
 on:
@@ -22,13 +28,13 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Enable pnpm
+      - name: Enable pnpm (与市场验证器同版本)
         run: |
           corepack enable
-          corepack prepare pnpm@10 --activate
+          corepack prepare pnpm@11.19.0 --activate
 
-      - name: Install
-        run: pnpm install --frozen-lockfile
+      - name: Install (市场验证器同款命令)
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Build both halves
         run: npm run build

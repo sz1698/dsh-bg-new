@@ -45,6 +45,24 @@
 - 重新核对全部对外文档里的路径、路由、命名空间与包名，删掉与发布无关的开发过程记录
   （构建笔记等只留在本地，不进仓库）。
 
+### 修复：`pnpm-lock.yaml` 与 `package.json` 不同步（导致社区实机验证失败）
+
+- **症状**：DSH 插件市场（dshmk.com）的实机验证报 `DEPENDENCY_INSTALL_FAILED`；
+  同一原因也让本仓库自己的 GitHub Actions 连续失败。
+- **根因**：`@deepseek-ai/dsh-home-paths` / `dsh-tools` / `schemastery` 早先是
+  `dependencies`，后来改成 `peerDependencies`（`devDependencies` 镜像精确版本），
+  但锁文件自首次提交起从未重新生成 —— `importers` 段里它们仍挂在 `dependencies`。
+  市场验证器（`scripts/validation/linux-sandbox.ts`）只要发现仓库里有
+  `pnpm-lock.yaml` 就跑 `pnpm install --frozen-lockfile --ignore-scripts`，
+  于是立刻以 `ERR_PNPM_OUTDATED_LOCKFILE` 失败。
+- **修法**：用**市场验证器同款的 pnpm 11.19.0** 重新生成锁文件。
+  `lockfileVersion` 仍为 `9.0`（格式没有被 pnpm 11 改动），变化只有把这三个包从
+  `dependencies` 移到 `devDependencies`，与 `package.json` 对齐。
+  已实测 pnpm 10.34.5 与 11.19.0 两个版本都能通过 `--frozen-lockfile`。
+- **防回归**：`.github/workflows/ci.yml` 的安装步骤改为与验证器完全一致
+  （钉 `pnpm@11.19.0` + `--frozen-lockfile --ignore-scripts`），
+  这样锁文件再次失同步时 CI 会先红，而不是等市场验证才发现。
+
 ---
 
 ## 0.6.0
