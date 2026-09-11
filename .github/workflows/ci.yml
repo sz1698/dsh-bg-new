@@ -1,0 +1,53 @@
+# CI：构建两侧产物 + 跑全量验证脚本。
+#
+# 说明：
+# - `@deepseek-ai/*` 是 peerDependencies（devDependencies 里镜像了一份精确版本），
+#   由公共 registry 解析；若你的环境用的是内网镜像，在这里补 registry 配置。
+# - 验证脚本不需要浏览器：它把 lib/client.js 跑在 Node 的 VM + 假 DOM 里断言。
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10 --activate
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build both halves
+        run: npm run build
+
+      - name: Verify (structure + engine + tool + settings assertions)
+        run: npm run verify
+
+      - name: Host bundle loads in plain Node
+        run: |
+          node -e "import('./lib/index.js').then(m => {
+            if (typeof m.apply !== 'function' || m.name !== 'dsh-bg-switch') process.exit(1);
+            console.log('host bundle ok:', m.name);
+          })"
+
+      - name: Client bundle keeps the closure-factory contract
+        run: |
+          node -e "
+            const s = require('node:fs').readFileSync('lib/client.js','utf8');
+            if (!s.startsWith('window.__ModuleLoader__.load({')) process.exit(1);
+            if (!s.trimEnd().endsWith('return module.exports; } });')) process.exit(1);
+            console.log('client bundle ok');
+          "

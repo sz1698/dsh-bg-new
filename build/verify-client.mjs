@@ -35,6 +35,8 @@ const banner = 'window.__ModuleLoader__.load({'
 const footer = 'return module.exports;'
 
 let failures = 0
+/** v0.4.4：A17 的 BgPanel 结构断言用的假快照（null = 走默认空对象）。 */
+let panelSnap = null
 const check = (name, ok, extra = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${extra ? '  ' + extra : ''}`)
   if (!ok) failures += 1
@@ -52,6 +54,13 @@ class FakeNode {
     this.listeners = {}
     this._text = ''
     this.connected = true
+    // v0.5.0: inline style surface (dim/transparency + hint bar write through it)
+    this.styleValues = {}
+    this.style = {
+      setProperty: (name, value, priority) => { this.styleValues[name] = priority === undefined ? String(value) : `${value} !${priority}` },
+      removeProperty: (name) => { delete this.styleValues[name] },
+      getPropertyValue: (name) => (name in this.styleValues ? this.styleValues[name] : ''),
+    }
     // video semantics
     this._paused = true
     this._currentTime = 0
@@ -75,14 +84,16 @@ class FakeNode {
   removeAttribute(name) { delete this.attrs[name] }
   set id(value) { this.attrs.id = String(value) }
   get id() { return this.attrs.id ?? null }
-  append(child) {
-    if (child.parent !== null && child.parent !== this) {
-      const i = child.parent.children.indexOf(child)
-      if (i >= 0) child.parent.children.splice(i, 1)
+  append(...children) {
+    for (const child of children) {
+      if (child.parent !== null && child.parent !== this) {
+        const i = child.parent.children.indexOf(child)
+        if (i >= 0) child.parent.children.splice(i, 1)
+      }
+      child.parent = this
+      child.connected = true
+      this.children.push(child)
     }
-    child.parent = this
-    child.connected = true
-    this.children.push(child)
   }
   remove() {
     if (this.parent !== null) {
@@ -114,10 +125,17 @@ class FakeNode {
 function makeFakeDom() {
   const head = new FakeNode('head')
   const body = new FakeNode('body')
+  // v0.4.4：document 也要能收发事件（弹窗拖动在 document 上听 pointermove/up）
+  const docListeners = {}
   const document = {
     head,
     body,
     createElement: (tag) => new FakeNode(tag),
+    addEventListener: (t, fn) => { (docListeners[t] ||= []).push(fn) },
+    removeEventListener: (t, fn) => { docListeners[t] = (docListeners[t] || []).filter((f) => f !== fn) },
+    /** 测试辅助：模拟 document 上的指针事件。 */
+    fire: (t, e) => { for (const fn of docListeners[t] || []) fn(e) },
+    listenerCount: (t) => (docListeners[t] || []).length,
   }
   return { document, head, body }
 }
@@ -189,8 +207,11 @@ const moduleExports = registration.factory((specifier) => {
   required.push(specifier)
   if (specifier === 'react') {
     return {
-      useSyncExternalStore: () => ({}),
-      useState: (v) => [v, () => {}],
+      // v0.4.4：stub 返回模块级 panelSnap —— A17 的 BgPanel 结构断言靠它喂一份
+      // 「和真 scope 同形」的快照；其余用例不设置 panelSnap 时行为与之前一致。
+      useSyncExternalStore: (_subscribe, _get, getServer) => (panelSnap !== null ? panelSnap : (getServer !== undefined ? getServer() : {})),
+      // useState 初始化函数要真的被调用（tab 初值就是 () => tabForMode(snap.mode)）
+      useState: (v) => [typeof v === 'function' ? v() : v, () => {}],
       // v0.4.1: BgPanel uses useEffect/useRef (not exercised by the VM, stub safe)
       useEffect: () => {},
       useRef: (v) => ({ current: v }),
@@ -211,10 +232,22 @@ const expectedExports = [
   'bgVideoSetSound', 'bgVideoSetVolume', 'bgKeyEnter', 'bgUploadLocalFile',
   // v0.4.1: seek (progress bar)
   'bgVideoSeek',
+  // v0.4.3: free zoom (0.25–4)
+  'clampBgScale',
   'clampBgVolume',
   'bgDefaultConfig', 'bgNormalizeConfig', 'bgLuminance', 'resolveTextScheme',
   'parseCssColor', 'relativeLuminance', 'fitCssFor', 'tokensForTextScheme',
   'REVEAL_TOKENS', 'BG_FITS', 'BG_TEXT_SCHEMES',
+  // v0.4.4: 遮罩重写 + 预览取色（previewThemeFor 保留为纯工具导出）
+  'maskTokensForTextScheme', 'previewThemeFor',
+  // v0.5.0: zoom + 顶部 token + meta theme-color
+  'clampBgZoom', 'bgZoomMin', 'bgZoomMax', 'bgMediaRender', 'zoomBackgroundSize',
+  'bgThemeColorFor', 'TOP_REGION_TOKENS', 'cssEscape',
+  // v0.6.0: 毛玻璃 + 抽屉/侧栏入口 + 滑动降透明 + 地址栏判定
+  'glassSurfaceTokensForTextScheme', 'GLASS_BACKDROP_FILTER', 'GLASS_BACKDROP_SELECTOR',
+  'bgSetAdjusting', 'bgIsAdjusting', 'disposeAdjusting',
+  'toggleDrawer', 'bgIsDrawerOpen', 'BgSidebarAction', 'BgDrawer',
+  'bgMediaFieldVerdict', 'DRAWER_WIDTH_CSS',
 ]
 const missingExports = expectedExports.filter((name) => typeof moduleExports?.[name] === 'undefined')
 check('A4 exports shape complete', missingExports.length === 0, `missing=${missingExports.join(',') || '-'}`)
@@ -271,7 +304,7 @@ check('A7 light-text palette overrides label trio', lightTokens['--dsw-alias-lab
   && typeof lightTokens['--dsw-alias-label-tertiary'] === 'string')
 check('A7 dark-text palette has dark labels + light translucent surfaces',
   darkTokens['--dsw-alias-label-primary'] === '#1a1d24'
-    && darkTokens['--dsw-alias-bg-layer-1'] === 'rgb(250 251 253 / 0.9)')
+    && darkTokens['--dsw-alias-bg-layer-1'] === 'rgb(250 251 253 / 0.96)')
 check('A7 no CSS var self-reference in palette values', [...Object.values(lightTokens), ...Object.values(darkTokens)]
   .every((value) => !String(value).includes('var(--dsw')), 'values are literals')
 check('A7 fit map: cover / fill / contain / center / tile', (() => {
@@ -290,6 +323,7 @@ check('A7 fit map: cover / fill / contain / center / tile', (() => {
 // ---- apply(ctx) wiring ----
 let registeredOptions = null
 let registeredComponent = null
+const registeredSlots = []
 let localeNs = null
 let localeDict = null
 let scopeBound = null
@@ -298,9 +332,16 @@ const setCalls = []
 const mutateCalls = []
 const dictionaries = new Map()
 let applyCleanup = null
+/** v0.4.4：apply() 现在装两个 effect（背景订阅 + 设置弹窗拖动），fake ctx 必须
+ * 像真 cordis 一样**累积**所有 disposer，否则后者会覆盖前者、卸载时背景不还原。 */
+const effectCleanups = []
+const runAllCleanups = () => {
+  for (const fn of effectCleanups.splice(0)) { if (typeof fn === 'function') fn() }
+  applyCleanup = null
+}
 const sectionBox = {
   mode: 'off', value: '', fit: 'cover', textScheme: 'auto', loop: true, mediaKey: '',
-  opacity: 1, posX: 50, posY: 50, volume: 1,
+  opacity: 1, posX: 50, posY: 50, scale: 1, zoom: 1, volume: 1, glass: false,
   imageExt: ['png', 'jpg'], videoExt: ['mp4'], maxImageMB: 10, maxVideoMB: 500,
   defaultFit: 'cover', defaultTextScheme: 'auto', defaultLoop: true,
 }
@@ -329,19 +370,32 @@ const fakeCtx = {
   },
   slots: {
     inject: (_name, deferred) => { deferred() },
-    register: (options, component) => { registeredOptions = options; registeredComponent = component; return () => {} },
+    register: (options, component) => { registeredOptions = options; registeredComponent = component; registeredSlots.push({ options, component }); return () => {} },
   },
-  effect: (fn) => { applyCleanup = fn(); return () => { if (typeof applyCleanup === 'function') applyCleanup() } },
+  effect: (fn) => {
+    const dispose = fn()
+    applyCleanup = dispose
+    effectCleanups.push(dispose)
+    return () => { if (typeof dispose === 'function') dispose() }
+  },
 }
 
 moduleExports.apply(fakeCtx)
 
-check('A8 register name/id/order', registeredOptions?.name === 'settings.section' && registeredOptions?.id === 'dsh-bg' && registeredOptions?.order === 500)
-const label = typeof registeredOptions?.label === 'function' ? registeredOptions.label() : registeredOptions?.label
-check('A8 register label zh == 「背景」', label === '背景', JSON.stringify(label))
-check('A8 registered component is BgPanel', registeredComponent === moduleExports.BgPanel)
-const injected = typeof registeredOptions?.inject === 'function' ? registeredOptions.inject() : null
-check('A8 inject() returns setBg + text', injected != null && typeof injected.setBg === 'function' && typeof injected.text === 'function')
+check('A8 registers two slots (sidebar.footer.action + shell.overlay)',
+  registeredSlots.length === 2
+    && registeredSlots.some((s) => s.options.name === 'sidebar.footer.action' && s.options.id === 'dsh-bg')
+    && registeredSlots.some((s) => s.options.name === 'shell.overlay' && s.options.id === 'dsh-bg'),
+  registeredSlots.map((s) => s.options.name).join(','))
+const footerReg = registeredSlots.find((s) => s.options.name === 'sidebar.footer.action')
+const overlayReg = registeredSlots.find((s) => s.options.name === 'shell.overlay')
+check('A8 sidebar action label zh == 「壁纸」', typeof footerReg?.options?.label === 'function' && footerReg.options.label() === '壁纸', String(footerReg?.options?.label?.()))
+check('A8 sidebar action component is BgSidebarAction', footerReg?.component === moduleExports.BgSidebarAction)
+check('A8 overlay component is BgDrawer', overlayReg?.component === moduleExports.BgDrawer)
+const injected = typeof overlayReg?.options?.inject === 'function' ? overlayReg.options.inject() : null
+check('A8 overlay inject() returns setBg + text', injected != null && typeof injected.setBg === 'function' && typeof injected.text === 'function')
+const footerInjected = typeof footerReg?.options?.inject === 'function' ? footerReg.options.inject() : null
+check('A8 sidebar action inject() returns text (no setBg)', footerInjected != null && typeof footerInjected.text === 'function' && footerInjected.setBg === undefined)
 check('A8 locale ns == settings.dsh-bg', localeNs === 'settings.dsh-bg', JSON.stringify(localeNs))
 const zhKeys = localeDict?.zh ? Object.keys(localeDict.zh).sort() : []
 const enKeys = localeDict?.en ? Object.keys(localeDict.en).sort() : []
@@ -425,7 +479,7 @@ moduleExports.applyBg('color', '#ffffff')
 {
   const text = styleText()
   check('A9 white color → resolved dark-text scheme', text.includes('--dsw-alias-label-primary: #1a1d24 !important')
-    && text.includes('--dsw-alias-bg-layer-1: rgb(250 251 253 / 0.9) !important'))
+    && text.includes('--dsw-alias-bg-layer-1: rgb(250 251 253 / 0.96) !important'))
 }
 moduleExports.applyBg('off', '')
 check('A9 off removes layer + style entirely (no residue)', layerNodes().length === 0 && styleNodes().length === 0 && styleText() === '')
@@ -559,7 +613,7 @@ await Promise.resolve()
   check('A14 resetAll removes layer/style immediately', layerNodes().length === 0 && styleNodes().length === 0)
   flushTimers()
   const writes = setCalls.slice(before)
-  const expectedDefaults = { mode: 'off', value: '', mediaKey: '', fit: 'cover', textScheme: 'auto', loop: true, opacity: 1, posX: 50, posY: 50, volume: 1 }
+  const expectedDefaults = { mode: 'off', value: '', mediaKey: '', fit: 'cover', textScheme: 'auto', loop: true, opacity: 1, posX: 50, posY: 50, scale: 1, zoom: 1, volume: 1, glass: false }
   const allWrittenDefaults = writes.every(([field, value]) => field in expectedDefaults && expectedDefaults[field] === value)
   check('A14 resetAll writes only default values (no residue)',
     allWrittenDefaults && writes.some(([field]) => field === 'mode') && writes.some(([field]) => field === 'posX'),
@@ -726,7 +780,7 @@ moduleExports.applyBg('video', 'https://cdn.example.com/ocean.mp4', { fit: 'cove
 }
 
 // ---- unload restore complete ----
-applyCleanup()
+runAllCleanups()
 check('A12 cleanup restores DOM (no layer/style/video)', layerNodes().length === 0 && styleNodes().length === 0)
 check('A12 cleanup leaves body children empty of ours', body.children.length === 0 && head.children.length === 0)
 
@@ -747,8 +801,8 @@ check('A12 cleanup leaves body children empty of ours', body.children.length ===
   const styleIdCount = codeNoComments.split('dsh-bg-style').length - 1
   const styleTagCreate = (codeNoComments.match(/createElement\(["']style["']\)/g) ?? []).length
   const videoTagCreate = (codeNoComments.match(/createElement\(["']video["']\)/g) ?? []).length
-  check('A15 bundle has exactly one layer attr + one style id + one element factory each',
-    layerCount === 1 && styleIdCount === 1 && styleTagCreate === 1 && videoTagCreate === 1,
+  check('A15 bundle has exactly one layer attr + one bg style id + two style factories (bg engine + drawer layout) + one video factory',
+    layerCount === 1 && styleIdCount === 1 && styleTagCreate === 2 && videoTagCreate === 1,
     `layer=${layerCount} style=${styleIdCount} styleEl=${styleTagCreate} videoEl=${videoTagCreate}`)
   moduleExports.applyBg('off', '')
 }
@@ -829,12 +883,15 @@ check('A12 cleanup leaves body children empty of ours', body.children.length ===
   const w4 = setCalls.slice(t4)
   const defaultOf = {
     mode: 'off', value: '', mediaKey: '', fit: 'cover', textScheme: 'auto', loop: true,
-    opacity: 1, posX: 50, posY: 50, volume: 1,
+    opacity: 1, posX: 50, posY: 50, scale: 1, zoom: 1, volume: 1, glass: false,
   }
   const defaultsOk = w4.every(([f, val]) => defaultOf[f] === val)
   check('A16 resetAll persists default-only fields (incl. posX/posY back to 50)',
     defaultsOk && w4.some(([f]) => f === 'mode')
       && w4.some(([f, v]) => f === 'posX' && v === 50) && w4.some(([f, v]) => f === 'posY' && v === 50),
+    JSON.stringify(w4))
+  check('A16 resetAll force-writes scale/opacity too (no residue left behind)',
+    w4.some(([f, v]) => f === 'scale' && v === 1) && w4.some(([f, v]) => f === 'opacity' && v === 1),
     JSON.stringify(w4))
   await Promise.resolve()
 
@@ -856,6 +913,524 @@ check('A12 cleanup leaves body children empty of ours', body.children.length ===
   Object.assign(sectionBox, { volume: 0.3 })
   scopeSubscriber()
   check('A16 volume survives a mirror replay (restart adoption)', videosIn()[0]?.volume === 0.3)
+
+  // (6) v0.4.3：媒体自由缩放（scale）——渲染 transform、滑杆持久化、边界钳制
+  moduleExports.applyBg('image', 'https://example.com/zoom.jpg', { fit: 'cover', scale: 1.5, posX: 25, posY: 75 })
+  check('A16 scale 1.5 renders transform around the focus point',
+    styleText().includes('transform: scale(1.5)') && styleText().includes('transform-origin: 25% 75%'),
+    styleText().split('\n').filter((l) => l.includes('transform')).join(' | '))
+  const t6 = setCalls.length
+  injected2.setBg('image', 'https://example.com/zoom.jpg', { scale: 0.5 })
+  flushTimers()
+  const w6 = setCalls.slice(t6)
+  check('A16 zoom slider persists scale only (single field)',
+    w6.length === 1 && w6[0][0] === 'scale' && w6[0][1] === 0.5, JSON.stringify(w6))
+  check('A16 scale 0.5 renders (zoom out)', styleText().includes('transform: scale(0.5)'))
+  check('A16 scale 1 omits transform entirely (minimal CSS)',
+    (() => {
+      moduleExports.applyBg('image', 'https://example.com/zoom.jpg', { fit: 'cover', scale: 1 })
+      return !styleText().includes('transform:')
+    })())
+  check('A16 clampBgScale bounds (0.25..4, default 1)',
+    moduleExports.clampBgScale(9) === 4 && moduleExports.clampBgScale(0.1) === 0.25
+      && moduleExports.clampBgScale(undefined) === 1 && moduleExports.clampBgScale(1.5) === 1.5)
+  await Promise.resolve()
+}
+
+// =====================================================================
+// A17) v0.4.4: 对比度补齐（#2）、恢复默认上移（#3）、弹窗拖动（#4）、预览（#5）
+// =====================================================================
+{
+  // ---- #2：调色板扩表 ----
+  const lt = moduleExports.tokensForTextScheme('light')
+  const dt = moduleExports.tokensForTextScheme('dark')
+  // 漏网 token 曾经让以下组件吃 UI 主题的浅色面 → 白底白字
+  const contrastCritical = [
+    '--dsw-alias-button-floating-fill', // 聊天「滚动到底部」圆钮底色
+    '--dsw-alias-button-elevated-fill', // 左侧「新会话」按钮底色
+    '--dsw-alias-button-floating-hover',
+    '--dsw-alias-button-ghost-active-fill', // 设置弹窗浅色控件
+    '--dsw-alias-button-ghost-active-hover',
+    '--dsw-alias-interactive-bg-hover',
+    '--dsw-alias-interactive-bg-hover-solid',
+    '--dsw-alias-label-caption',
+    '--dsw-alias-brand-text',
+    '--dsw-alias-scrollbar-bg-l1',
+    '--dsw-alias-bg-mask-1',
+  ]
+  check('A17 #2 两套调色板都补齐了「按钮/交互/遮罩」族 token',
+    contrastCritical.every((k) => typeof lt[k] === 'string' && typeof dt[k] === 'string'
+      && !lt[k].includes('var(') && !dt[k].includes('var(')),
+    contrastCritical.filter((k) => typeof lt[k] !== 'string' || typeof dt[k] !== 'string').join(',') || 'all present')
+  check('A17 #2 浅字方案：滚动到底部圆钮 = 深底 + 浅字（不再是白底白字）',
+    lt['--dsw-alias-label-primary'] === '#f2f4f8'
+      && /^rgb\((\d+) (\d+) (\d+) \/ 0\.9[0-9]?\)$/.test(lt['--dsw-alias-button-floating-fill']),
+    lt['--dsw-alias-button-floating-fill'])
+  check('A17 #2 深字方案：同一 token 反转成浅底 + 深字',
+    dt['--dsw-alias-label-primary'] === '#1a1d24'
+      && /^rgb\(255 255 255 \/ 0\.9[0-9]?\)$/.test(dt['--dsw-alias-button-floating-fill']),
+    dt['--dsw-alias-button-floating-fill'])
+  check('A17 #2 bubble-highlight 是「更亮的高亮面」而不是第二个普通气泡面',
+    lt['--dsw-specific-bubble-highlight'] !== lt['--dsw-specific-bubble']
+      && dt['--dsw-specific-bubble-highlight'] !== dt['--dsw-specific-bubble'])
+  check('A17 #2 两套调色板同键（便于对照维护）',
+    Object.keys(lt).sort().join('|') === Object.keys(dt).sort().join('|'),
+    `light=${Object.keys(lt).length} dark=${Object.keys(dt).length}`)
+
+  // ---- #2：遮罩必须用 body * 同特异性重写（主题把 mask 值预替换在 body, body *）----
+  moduleExports.applyBg('color', '#0d1117')
+  const cssLight = styleText()
+  check('A17 #2 引擎 CSS 里有 body * 的遮罩重写（设置弹窗遮罩不再吃浅色字面量）',
+    cssLight.includes('body * {') && cssLight.includes('--dsw-alias-bg-mask-1: rgba(0,0,0,0.28) !important'),
+    cssLight.split('\n').filter((l) => l.includes('mask-1')).join(' | '))
+  check('A17 #2 设置弹窗遮罩置透明（背景保持全屏透出）',
+    cssLight.includes(':has(> div[role="dialog"][aria-modal="true"])')
+      && cssLight.includes('background: transparent !important'))
+  check('A17 #2 不写全局 text-shadow（深字方案下会在浅底上描黑边）',
+    !cssLight.includes('text-shadow'), 'no body-level text-shadow')
+
+  // ---- #5（v0.6.0 移除预览画布）：previewThemeFor 保留为纯工具导出 ----
+  check('A17 #5 previewThemeFor 仍可用（纯工具，供旧调用方/验证）',
+    moduleExports.previewThemeFor('light').text === '#f2f4f8'
+      && moduleExports.previewThemeFor('dark').text === '#1a1d24'
+      && moduleExports.previewThemeFor(null).fallbackBg !== '')
+  check('A17 #5 预览取色全是字面量（不会引用主题变量导致错位）',
+    Object.values(moduleExports.previewThemeFor('light')).every((v) => typeof v === 'string' && !v.includes('var(')))
+  // 面板渲染：VM 里的 react 是 stub，jsx 直接返回 props，所以可以遍历 children 找 testid
+  const flatten = (node, out = []) => {
+    if (node === null || node === undefined) return out
+    if (Array.isArray(node)) { for (const item of node) flatten(item, out); return out }
+    if (typeof node !== 'object') return out
+    out.push(node)
+    if (node.children !== undefined) flatten(node.children, out)
+    return out
+  }
+  panelSnap = {
+    mode: 'off', value: '', fit: 'cover', textScheme: 'auto', loop: true, mediaKey: '',
+    opacity: 1, posX: 50, posY: 50, scale: 1, zoom: 1, volume: 1, glass: false, resolvedText: null,
+    cfg: { ...moduleExports.bgDefaultConfig },
+    video: { paused: true, rate: 1, loop: true, soundOn: false, currentTime: 0, duration: 0 },
+    status: { error: '' },
+  }
+  const panelNodes = flatten(moduleExports.BgPanel({
+    setBg: () => {},
+    text: (k) => k,
+    // VM 里 useSyncExternalStore 是 stub，直接返回 panelSnap —— 在 props 上带一份
+    // 「和真 scope 同形」的快照，让 BgPanel 的结构断言能真跑（tab / 恢复默认 / 毛玻璃）。
+    ...panelSnap,
+  }))
+  const testids = panelNodes.map((n) => n['data-testid']).filter(Boolean)
+  check('A17 #3 恢复默认只有一个按钮，且挂在 tab 栏里（dsh-bg-reset）',
+    testids.filter((id) => id === 'dsh-bg-reset').length === 1 && testids.includes('dsh-bg-tabs'),
+    testids.join(','))
+  check('A17 面板里不再有预览块（v0.6.0 已去掉预览）', !testids.includes('dsh-bg-preview'))
+  check('A17 面板里有毛玻璃质感开关（dsh-bg-glass）', testids.includes('dsh-bg-glass'))
+}
+
+// =====================================================================
+// A18) v0.5.0：#A 预览画布 / #B zoom / #C 调参降透明 / #D 独立窗口入口 /
+//      #E 顶部 token 覆盖集合 + meta theme-color
+// =====================================================================
+{
+  // 面板结构断言要自己遍历 jsx props 树（stub 下 jsx 直接返回 props）
+  const flatten = (node, out = []) => {
+    if (node === null || node === undefined) return out
+    if (Array.isArray(node)) { for (const item of node) flatten(item, out); return out }
+    if (typeof node !== 'object') return out
+    out.push(node)
+    if (node.children !== undefined) flatten(node.children, out)
+    return out
+  }
+
+  // ---- #B zoom：钳制 / 渲染 / 持久化 / 镜像采纳 ----
+  check('A18 #B clampBgZoom 边界与步长（1..3，吸附 0.05，缺省 1）',
+    moduleExports.clampBgZoom(9) === 3 && moduleExports.clampBgZoom(0.2) === 1
+      && moduleExports.clampBgZoom(undefined) === 1 && moduleExports.clampBgZoom(1.23) === 1.25
+      && moduleExports.clampBgZoom(2) === 2,
+    JSON.stringify([moduleExports.clampBgZoom(9), moduleExports.clampBgZoom(0.2), moduleExports.clampBgZoom(1.23)]))
+  check('A18 #B zoom 范围常量（滑杆 100%–300%）',
+    moduleExports.bgZoomMin === 1 && moduleExports.bgZoomMax === 3)
+  // image + fill：zoom 进 background-size（calc 百分比）—— 需求 F 的断言点
+  moduleExports.applyBg('image', 'https://example.com/zoomfill.jpg', { fit: 'fill', zoom: 2 })
+  check('A18 #B image+fill zoom=2 → background-size: calc(100% * 2)（宽高都缩放）',
+    styleText().includes('background-size: calc(100% * 2) calc(100% * 2)'), styleText().split('\n').filter((l) => l.includes('background-size')).join(' | '))
+  check('A18 #B image+fill zoom 不进 transform（避免双重放大）',
+    !styleText().includes('transform:'), styleText().split('\n').filter((l) => l.includes('transform')).join(' | '))
+  // image + cover：CSS 无法对 cover 再乘系数 → 走 transform
+  moduleExports.applyBg('image', 'https://example.com/zoomcover.jpg', { fit: 'cover', zoom: 1.5, posX: 30, posY: 70 })
+  check('A18 #B image+cover zoom=1.5 → 关键字尺寸保持 + transform: scale(1.5) 绕焦点',
+    styleText().includes('background-size: cover')
+      && styleText().includes('transform: scale(1.5)')
+      && styleText().includes('transform-origin: 30% 70%'),
+    styleText().split('\n').filter((l) => l.includes('transform') || l.includes('background-size')).join(' | '))
+  // video：zoom 走 transform: scale
+  moduleExports.applyBg('video', 'https://cdn.example.com/zoomzoom.mp4', { fit: 'cover', zoom: 2, posX: 0, posY: 100 })
+  check('A18 #B video zoom=2 → <video> 的 transform: scale(2) + 焦点 origin',
+    styleText().includes('transform: scale(2)') && styleText().includes('transform-origin: 0% 100%')
+      && styleText().includes('object-position: 0% 100%'),
+    styleText().split('\n').filter((l) => l.includes('transform') || l.includes('object-')).join(' | '))
+  check('A18 #B zoom=1 时不输出任何 transform / calc（保持最小 CSS）',
+    (() => {
+      moduleExports.applyBg('image', 'https://example.com/plain.jpg', { fit: 'cover', zoom: 1 })
+      return !styleText().includes('transform:') && !styleText().includes('calc(')
+    })())
+  check('A18 #B zoom 与 v0.4.3 scale 相乘（两条缩放轴都非 1 时叠加）',
+    (() => {
+      moduleExports.applyBg('image', 'https://example.com/both.jpg', { fit: 'cover', zoom: 1.5, scale: 2 })
+      return styleText().includes('transform: scale(3)')
+    })(), styleText().split('\n').filter((l) => l.includes('transform')).join(' | '))
+  check('A18 #B zoom 超界被钳制到 3（99 → 300% 上限；scale 显式归 1 以隔离本轴）',
+    (() => {
+      moduleExports.applyBg('video', 'https://cdn.example.com/clamp.mp4', { fit: 'cover', zoom: 99, scale: 1 })
+      return styleText().includes('transform: scale(3)')
+    })())
+  // zoom 参与 applyKey：镜像变化必须重渲染
+  check('A18 #B zoom 进入 applyKey（镜像 zoom 变化 → CSS 跟着变）',
+    (() => {
+      moduleExports.applyBg('image', 'https://example.com/mirror.jpg', { fit: 'cover', zoom: 1, scale: 1 })
+      const before = styleText()
+      sectionBox.mode = 'image'
+      sectionBox.value = 'https://example.com/mirror.jpg'
+      sectionBox.mediaKey = ''
+      sectionBox.zoom = 2
+      scopeSubscriber()
+      const after = styleText()
+      const ok = !before.includes('transform:') && after.includes('transform: scale(2)')
+      sectionBox.zoom = 1
+      scopeSubscriber()
+      return ok
+    })())
+  // zoom 持久化（UI 路径：单字段、一次原子提交）
+  {
+    moduleExports.apply(fakeCtx)
+    const injected3 = (typeof registeredOptions?.inject === 'function' ? registeredOptions.inject() : null)
+    const t0 = setCalls.length
+    injected3.setBg('image', 'https://example.com/persist.jpg', { zoom: 2.5 })
+    check('A18 #B 缩放滑杆乐观生效（不必等落库）', styleText().includes('transform: scale(2.5)'))
+    flushTimers()
+    const wrote = setCalls.slice(t0).filter(([f]) => f === 'zoom')
+    check('A18 #B zoom 持久化为单字段写入（值 2.5）',
+      wrote.length === 1 && wrote[0][1] === 2.5, JSON.stringify(setCalls.slice(t0)))
+    await Promise.resolve()
+    // 面板的缩放控件改 zoom 时顺带把遗留 scale 归 1（避免两条轴相乘）
+    const t1 = setCalls.length
+    Object.assign(sectionBox, { mode: 'image', value: 'https://example.com/persist.jpg', mediaKey: '', zoom: 2.5, scale: 2 })
+    scopeSubscriber()
+    injected3.setBg('image', 'https://example.com/persist.jpg', { zoom: 2, scale: 1 })
+    flushTimers()
+    const wrote2 = setCalls.slice(t1)
+    check('A18 #B zoom 变更同时把遗留 scale 归 1（两条轴不相乘）',
+      wrote2.some(([f, v]) => f === 'zoom' && v === 2) && wrote2.some(([f, v]) => f === 'scale' && v === 1),
+      JSON.stringify(wrote2))
+    await Promise.resolve()
+    Object.assign(sectionBox, { zoom: 1, scale: 1 })
+    scopeSubscriber()
+  }
+
+  // ---- v0.6.0：预览画布已移除（#A 断言整体删除） ----
+  // ---- v0.6.0：#3 滑动调参降透明（抽屉自身透明度）+ #2 抽屉/侧栏入口 + #5 毛玻璃 ----
+  check('A18 交互期初始为 false', moduleExports.bgIsAdjusting() === false)
+  moduleExports.bgSetAdjusting(true)
+  check('A18 bgSetAdjusting(true) → 交互期开启', moduleExports.bgIsAdjusting() === true)
+  moduleExports.bgSetAdjusting(false)
+  check('A18 bgSetAdjusting(false) → 交互期关闭', moduleExports.bgIsAdjusting() === false)
+  moduleExports.bgSetAdjusting(true)
+  moduleExports.disposeAdjusting()
+  check('A18 disposeAdjusting（卸载）→ 交互期强制关闭', moduleExports.bgIsAdjusting() === false)
+
+  check('A18 抽屉初始关闭', moduleExports.bgIsDrawerOpen() === false)
+  check('A18 toggleDrawer 打开 → true', moduleExports.toggleDrawer() === true && moduleExports.bgIsDrawerOpen() === true)
+  check('A18 toggleDrawer 再关 → false', moduleExports.toggleDrawer() === false && moduleExports.bgIsDrawerOpen() === false)
+
+  const glassLight = moduleExports.glassSurfaceTokensForTextScheme('light')
+  check('A18 毛玻璃内容面 token 覆盖（浅字方案）且半透明',
+    typeof glassLight['--dsw-alias-bg-layer-1'] === 'string'
+      && glassLight['--dsw-alias-bg-layer-1'].includes('0.55')
+      && glassLight['--dsw-specific-bubble'] !== undefined)
+  check('A18 毛玻璃 backdrop 滤镜 + 目标选择器（含抽屉/弹窗/输入卡）',
+    typeof moduleExports.GLASS_BACKDROP_FILTER === 'string'
+      && moduleExports.GLASS_BACKDROP_FILTER.includes('blur')
+      && moduleExports.GLASS_BACKDROP_SELECTOR.includes('[data-dsh-bg-drawer]')
+      && moduleExports.GLASS_BACKDROP_SELECTOR.includes('[data-composer-card]'))
+  moduleExports.applyBg('image', 'https://example.com/glass.jpg', { glass: true })
+  const glassCss = styleText()
+  check('A18 glass:true → 引擎 CSS 输出 body[data-dsh-bg-glass] 与 backdrop-filter',
+    glassCss.includes('body[data-dsh-bg-glass]')
+      && glassCss.includes('backdrop-filter: blur(16px) saturate(1.2)')
+      && glassCss.includes('-webkit-backdrop-filter'),
+    glassCss.split('\n').filter((l) => l.includes('backdrop') || l.includes('data-dsh-bg-glass')).join(' | '))
+  moduleExports.applyBg('image', 'https://example.com/plain.jpg', { glass: false })
+  const plainCss = styleText()
+  check('A18 glass:false → 不输出毛玻璃 CSS', !plainCss.includes('data-dsh-bg-glass') && !plainCss.includes('backdrop-filter'))
+
+  const v06Keys = ['wallpaper', 'close', 'glass', 'glassHint']
+  check('A18 抽屉/毛玻璃新增文案键 zh/en 齐备且非空',
+    v06Keys.every((k) => typeof localeDict?.zh?.[k] === 'string' && localeDict.zh[k] !== ''
+      && typeof localeDict?.en?.[k] === 'string' && localeDict.en[k] !== ''),
+    v06Keys.filter((k) => !localeDict?.zh?.[k] || !localeDict?.en?.[k]).join(',') || 'all present')
+
+  const baseSnap = {
+    mode: 'off', value: '', fit: 'cover', textScheme: 'auto', loop: true, mediaKey: '',
+    opacity: 1, posX: 50, posY: 50, scale: 1, zoom: 1, volume: 1, glass: false, resolvedText: 'light',
+    cfg: { ...moduleExports.bgDefaultConfig },
+    video: { paused: true, rate: 1, loop: true, soundOn: false, currentTime: 0, duration: 0 },
+    status: { error: '' },
+  }
+  {
+    panelSnap = { ...baseSnap, mode: 'image', value: 'https://example.com/x.jpg', fit: 'cover' }
+    const nodes = flatten(moduleExports.BgPanel({ setBg: () => {}, text: (k) => k, ...panelSnap }))
+    const ids = nodes.map((n) => n['data-testid']).filter(Boolean)
+    check('A18 面板有毛玻璃开关、无预览块、无独立窗口按钮',
+      ids.includes('dsh-bg-glass') && !ids.includes('dsh-bg-preview')
+        && !ids.includes('dsh-bg-hold-preview') && !ids.includes('dsh-bg-adjust-row'),
+      ids.join(','))
+    const ranges = nodes.filter((n) => n.type === 'range' || (n.style && n.min !== undefined))
+    check('A18 缩放滑杆（zoom 100%–300%）出现在壁纸控件里',
+      ranges.some((n) => n.min === 100 && n.max === 300),
+      JSON.stringify(ranges.map((n) => [n.min, n.max])))
+    check('A18 连续滑杆（透明度/定位/缩放）都挂降透明回调；适配下拉不挂（第三轮需求 5）',
+      ranges.length >= 4
+        && ranges.every((n) => typeof n.onPointerDown === 'function' && typeof n.onPointerUp === 'function' && typeof n.onBlur === 'function')
+        && nodes.filter((n) => n.type === 'select').every((n) => n.onPointerDown === undefined),
+      JSON.stringify(ranges.map((n) => [n.min, n.max, n.step, typeof n.onPointerDown])))
+  }
+
+  // ---- 第五轮需求 1：小图（滚轮缩放 + 拖动定位） ----
+  {
+    panelSnap = {
+      ...baseSnap, mode: 'image', value: 'https://example.com/map.jpg', fit: 'cover',
+      zoom: 1.5, posX: 30, posY: 70,
+    }
+    const nodes = flatten(moduleExports.BgPanel({ setBg: () => {}, text: (k) => k, ...panelSnap }))
+    const box = nodes.find((n) => n['data-testid'] === 'dsh-bg-minimap-box')
+    check('A18 小图存在（图片模式）且有拖动起点 handler + ref（滚轮监听在 document 上按包含判断）',
+      box !== undefined && typeof box.onPointerDown === 'function' && box.ref !== undefined)
+    const layer = flatten(box?.children).find((n) => n['data-dsh-bg-minimap-layer'] !== undefined)
+    check('A18 小图与真实层同规则（zoom 1.5 → scale(1.5) 绕焦点 30%/70%）',
+      layer !== undefined && String(layer.style.transform) === 'scale(1.5)'
+        && String(layer.style.transformOrigin) === '30% 70%'
+        && String(layer.style.backgroundImage).includes('map.jpg'),
+      JSON.stringify(layer?.style))
+    check('A18 视频模式下小图用 canvas 镜像真实层那一帧（不再开第二路 <video>）', (() => {
+      panelSnap = { ...baseSnap, mode: 'video', value: 'https://cdn.example.com/map.mp4', fit: 'cover' }
+      const vNodes = flatten(moduleExports.BgPanel({ setBg: () => {}, text: (k) => k, ...panelSnap }))
+      const boxChildren = flatten(vNodes.find((n) => n['data-testid'] === 'dsh-bg-minimap-box')?.children)
+      const canvas = boxChildren.find((n) => n['data-dsh-bg-minimap-video'] !== undefined)
+      // canvas 分支没有 src / muted（不吃第二路媒体源）—— 远程视频因此不会再"小图空白"
+      return canvas !== undefined && canvas.ref !== undefined
+        && canvas.src === undefined && canvas.muted === undefined
+        && canvas.autoPlay === undefined
+    })())
+    check('A18 纯色/渐变模式不渲染小图（缩放定位对它们没有意义）', (() => {
+      panelSnap = { ...baseSnap, mode: 'gradient', value: 'linear-gradient(#fff, #000)' }
+      const gNodes = flatten(moduleExports.BgPanel({ setBg: () => {}, text: (k) => k, ...panelSnap }))
+      return gNodes.every((n) => n['data-testid'] !== 'dsh-bg-minimap-box')
+    })())
+    check('A18 小图提示文案 zh/en 齐备',
+      typeof localeDict?.zh?.minimapHint === 'string' && localeDict.zh.minimapHint.includes('滚轮')
+        && typeof localeDict?.en?.minimapHint === 'string' && localeDict.en.minimapHint.includes('Scroll'))
+  }
+
+  // ---- 第五轮需求 4/5：小图拖动的「2 秒越界宽限」 ----
+  {
+    moduleExports.bgSetAdjusting(false)
+    moduleExports.apply(fakeCtx)
+    const injectedGrace = typeof registeredOptions?.inject === 'function' ? registeredOptions.inject() : null
+    panelSnap = { ...baseSnap, mode: 'image', value: 'https://example.com/grace.jpg', fit: 'cover', posX: 50, posY: 50 }
+    const nodes = flatten(moduleExports.BgPanel({ setBg: injectedGrace.setBg, text: (k) => k, ...panelSnap }))
+    const box = nodes.find((n) => n['data-testid'] === 'dsh-bg-minimap-box')
+    const rect = { left: 0, top: 0, right: 100, bottom: 100, width: 100, height: 100 }
+    const t0 = setCalls.length
+    box.onPointerDown({ clientX: 50, clientY: 50, currentTarget: { getBoundingClientRect: () => rect } })
+    document.fire('pointermove', { clientX: 60, clientY: 50 })
+    flushTimers()
+    check('A18 小图内拖动 → 写 posX（拖满小图宽 = 0→100 全量程）',
+      setCalls.slice(t0).some(([f, v]) => f === 'posX' && v === 60), JSON.stringify(setCalls.slice(t0)))
+    const beforeOutside = setCalls.length
+    document.fire('pointermove', { clientX: 200, clientY: 50 })
+    flushTimers()
+    check('A18 拖出边界后 2 秒宽限期内仍可继续定位（位置照写、夹在 0..100）',
+      setCalls.slice(beforeOutside).some(([f, v]) => f === 'posX' && v === 100), JSON.stringify(setCalls.slice(beforeOutside)))
+    const afterGrace = setCalls.length
+    document.fire('pointermove', { clientX: 210, clientY: 50 })
+    flushTimers()
+    check('A18 宽限期到点 → 结束拖动，边界外的移动不再写设置',
+      setCalls.slice(afterGrace).every(([f]) => f !== 'posX'), JSON.stringify(setCalls.slice(afterGrace)))
+    moduleExports.bgSetAdjusting(false)
+    await Promise.resolve()
+  }
+
+  // ---- 第五轮需求 2：单击滑条不降透明，只有真的拖动才降 ----
+  {
+    moduleExports.bgSetAdjusting(false)
+    panelSnap = { ...baseSnap, mode: 'image', value: 'https://example.com/dim.jpg', fit: 'cover' }
+    const nodes = flatten(moduleExports.BgPanel({ setBg: () => {}, text: (k) => k, ...panelSnap }))
+    const opacitySlider = nodes.find((n) => n.type === 'range' && n.min === 0 && n.max === 100 && n.step === 5)
+    check('A18 透明度滑杆找到（第五轮需求 2）', opacitySlider !== undefined)
+    opacitySlider.onPointerDown({ clientX: 100, clientY: 100 })
+    document.fire('pointermove', { clientX: 101, clientY: 101 })
+    check('A18 单击滑条（指针没动过）→ 不降透明', moduleExports.bgIsAdjusting() === false)
+    document.fire('pointermove', { clientX: 140, clientY: 100 })
+    check('A18 指针移动超过阈值 → 开始降透明', moduleExports.bgIsAdjusting() === true)
+    document.fire('pointerup', {})
+    check('A18 松手 → 恢复（交互期结束）', moduleExports.bgIsAdjusting() === false)
+  }
+
+  {
+    const actionNodes = flatten(moduleExports.BgSidebarAction({ text: (k) => k, wide: true }))
+    check('A18 侧栏按钮渲染且带 testid + 切换抽屉的 onClick',
+      actionNodes.some((n) => n['data-testid'] === 'dsh-bg-sidebar-action' && typeof n.onClick === 'function'))
+    // 需求 6：展开态 = 图标 + 「壁纸」；收起态只留图标（无文字子节点）。
+    // 注：VM 里的 jsx stub 只回 props（丢掉元素类型），所以按 props 特征判定：
+    // 图标 = 带 viewBox 的 svg props，文字 = children 为文案键的 span props。
+    const wideBtn = actionNodes.find((n) => n['data-testid'] === 'dsh-bg-sidebar-action')
+    const wideChildren = Array.isArray(wideBtn?.children) ? wideBtn.children : [wideBtn?.children]
+    check('A18 侧栏按钮展开态 = 图标 + 「壁纸」文字',
+      wideChildren.some((c) => c?.viewBox !== undefined) && wideChildren.some((c) => c?.children === 'wallpaper'),
+      JSON.stringify(wideChildren.map((c) => (c?.viewBox !== undefined ? 'icon' : c?.children))))
+    const narrowNodes = flatten(moduleExports.BgSidebarAction({ text: (k) => k, wide: false }))
+    const narrowBtn = narrowNodes.find((n) => n['data-testid'] === 'dsh-bg-sidebar-action')
+    check('A18 侧栏按钮收起态只显示图标（无文字）', narrowBtn?.children?.viewBox !== undefined,
+      JSON.stringify(narrowBtn?.children?.viewBox ?? narrowBtn?.children))
+
+    moduleExports.toggleDrawer()
+    const drawerNodes = flatten(moduleExports.BgDrawer({ setBg: () => {}, text: (k) => k }))
+    moduleExports.toggleDrawer()
+    const panel = drawerNodes.find((n) => n['data-dsh-bg-drawer'] !== undefined)
+    const closeBtn = drawerNodes.find((n) => n['data-testid'] === 'dsh-bg-drawer-close')
+    const backdrop = drawerNodes.find((n) => n['data-testid'] === 'dsh-bg-drawer-backdrop')
+    check('A18 抽屉打开时渲染面板 + 关闭按钮（data-dsh-bg-drawer / dsh-bg-drawer-close）',
+      panel !== undefined && closeBtn !== undefined)
+    check('A18 抽屉宽度 = min(630px,100vw)（需求 2：+50%）',
+      panel?.style?.width === 'min(630px, 100vw)', String(panel?.style?.width))
+    check('A18 关闭按钮有描边 + 圆角 50%（需求 8）',
+      String(closeBtn?.style?.border ?? '').includes('1px solid') && closeBtn?.style?.borderRadius === '50%',
+      JSON.stringify({ border: closeBtn?.style?.border, radius: closeBtn?.style?.borderRadius }))
+    check('A18 点抽屉外区域关闭（透明遮罩 onClick → setDrawerOpen(false)，需求 9）',
+      backdrop !== undefined && typeof backdrop.onClick === 'function' && backdrop.style?.background === 'transparent')
+    check('A18 面板里不再重复渲染「背景」标题（需求 5）',
+      drawerNodes.filter((n) => n['data-testid'] === 'dsh-bg-title').length === 0)
+    // 第二轮需求 1：抽屉打开 → body 标记 + 隐藏侧栏/聊天列的布局 CSS
+    moduleExports.toggleDrawer()
+    const drawerCss = [...head.children, ...body.children]
+      .find((n) => n.getAttribute?.('id') === 'dsh-bg-drawer-style')?.textContent ?? ''
+    moduleExports.toggleDrawer()
+    check('A18 抽屉布局样式表存在（打开时隐藏左侧栏与聊天列，第二轮需求 1）',
+      drawerCss.includes('[data-shell-overlay]') && drawerCss.includes('grid-template-columns: 0px 0px 0px'),
+      drawerCss.slice(0, 160))
+    check('A18 抽屉底板半透明 + backdrop 模糊（第二轮需求 6：不用固定色）',
+      typeof panel?.style?.background === 'string'
+        && panel.style.background.includes('rgb(') && panel.style.background.includes('/ 0.55')
+        && typeof panel.style.backdropFilter === 'string' && panel.style.backdropFilter.includes('blur'),
+      JSON.stringify({ bg: panel?.style?.background, filter: panel?.style?.backdropFilter }))
+    check('A18 侧栏按钮无描边（第二轮需求 3）',
+      wideBtn?.style?.border === 'none', String(wideBtn?.style?.border))
+    check('A18 视频播放/停止合并为一个图标按钮（第二轮需求 2）', (() => {
+      panelSnap = { ...baseSnap, mode: 'video', value: 'https://cdn.example.com/v.mp4', fit: 'cover' }
+      const nodes = flatten(moduleExports.BgPanel({ setBg: () => {}, text: (k) => k, ...panelSnap }))
+      const btns = nodes.filter((n) => n['data-testid'] === 'dsh-bg-video-playstop')
+      return btns.length === 1 && btns[0].children?.viewBox !== undefined
+        && btns.every((n) => n.children !== '播放' && n.children !== '停止')
+    })())
+    check('A18 视频页签不再渲染「背景视频」标签行（第二轮需求 4；页签按钮本身保留）', (() => {
+      const nodes = flatten(moduleExports.BgPanel({ setBg: () => {}, text: (k) => k, ...panelSnap }))
+      const tabLabels = nodes.filter((n) => n.children === 'video' && n.role === 'tab').length
+      const rowLabels = nodes.filter((n) => n.children === 'video' && n.role !== 'tab').length
+      return tabLabels === 1 && rowLabels === 0
+    })())
+    check('A18 本地视频提示不再提「上限」且说明只在本机使用（第二轮需求 5）',
+      typeof localeDict?.zh?.localVideoHint === 'string'
+        && !localeDict.zh.localVideoHint.includes('上限')
+        && localeDict.zh.localVideoHint.includes('不会上传到云端')
+        && typeof localeDict?.en?.localVideoHint === 'string'
+        && !localeDict.en.localVideoHint.includes('limit'),
+      String(localeDict?.zh?.localVideoHint))
+    // 第三轮需求 6：本地文件回显值点「应用」= 保持不变（不报"需要 http 开头"）
+    const localImgState = { mode: 'image', mediaKey: 'k-1', value: 'photo.jpg' }
+    const localVidState = { mode: 'video', mediaKey: 'k-2', value: 'C:\\clips\\a.mp4' }
+    check('A18 bgMediaFieldVerdict：当前本地文件的回显值 → noop（不报错、不写设置）',
+      moduleExports.bgMediaFieldVerdict('image', 'photo.jpg', localImgState) === 'noop'
+        && moduleExports.bgMediaFieldVerdict('video', 'C:\\clips\\a.mp4', localVidState) === 'noop')
+    check('A18 bgMediaFieldVerdict：url / 本地路径 / 非法 各自分流',
+      moduleExports.bgMediaFieldVerdict('image', 'https://x/a.jpg', localImgState) === 'url'
+        && moduleExports.bgMediaFieldVerdict('image', 'D:\\pics\\b.png', localImgState) === 'local-path'
+        && moduleExports.bgMediaFieldVerdict('image', '/home/u/c.png', localImgState) === 'local-path'
+        && moduleExports.bgMediaFieldVerdict('image', 'file:///tmp/d.png', localImgState) === 'local-path'
+        && moduleExports.bgMediaFieldVerdict('image', 'nonsense', localImgState) === 'invalid'
+        && moduleExports.bgMediaFieldVerdict('image', '', localImgState) === 'invalid')
+    check('A18 bgMediaFieldVerdict：值变了 / 类型不匹配就不再是 noop（该报错还是要报）',
+      moduleExports.bgMediaFieldVerdict('image', 'other.jpg', localImgState) === 'invalid'
+        && moduleExports.bgMediaFieldVerdict('video', 'photo.jpg', localImgState) === 'invalid'
+        && moduleExports.bgMediaFieldVerdict('image', 'photo.jpg', { mode: 'image', mediaKey: '', value: 'photo.jpg' }) === 'invalid')
+    // 第三轮需求 1–4：四个来源行都不再有标签；页签与抽屉标题文案
+    check('A18 来源页签与抽屉标题文案（第三/七轮需求）',
+      localeDict?.zh?.image === '图片' && localeDict?.zh?.video === '视频'
+        && localeDict?.zh?.title === '壁纸' && localeDict?.zh?.presets === '系统'
+        && localeDict?.en?.image === 'Image' && localeDict?.en?.presets === 'System',
+      JSON.stringify({ image: localeDict?.zh?.image, video: localeDict?.zh?.video, title: localeDict?.zh?.title, presets: localeDict?.zh?.presets }))
+    // 第七轮需求 2：药丸式分段 tab + 滑动滑块（位移过渡）
+    check('A18 tab 是药丸式分段控件（底槽 999px + 滑块 translateX 过渡 + 文字渐变）', (() => {
+      const nodes = flatten(moduleExports.BgPanel({ setBg: () => {}, text: (k) => k, ...baseSnap }))
+      const list = nodes.find((n) => n['data-testid'] === 'dsh-bg-tablist')
+      const thumb = nodes.find((n) => n['data-testid'] === 'dsh-bg-tab-thumb')
+      const tabs = nodes.filter((n) => n.role === 'tab')
+      return list !== undefined && String(list.style?.borderRadius) === '999px'
+        && thumb !== undefined && String(thumb.style?.transform).startsWith('translateX')
+        && String(thumb.style?.transition).includes('transform')
+        && String(thumb.style?.width).includes('100% - 6px')
+        && tabs.length === 5
+        && tabs.every((n) => String(n.style?.transition).includes('color'))
+    })())
+    check('A18 滑块位置跟着当前 tab 走（mode=image → 第 4 个位置 translateX(300%)）', (() => {
+      panelSnap = { ...baseSnap, mode: 'image', value: 'https://example.com/t.jpg' }
+      const nodes = flatten(moduleExports.BgPanel({ setBg: () => {}, text: (k) => k, ...panelSnap }))
+      const thumb = nodes.find((n) => n['data-testid'] === 'dsh-bg-tab-thumb')
+      return thumb !== undefined && thumb.style.transform === 'translateX(300%)'
+    })())
+    check('A18 四个来源页签的编辑行都没有来源标签（第三轮需求 1）', (() => {
+      // row() 的标签是 width:44px 的 span；页签按钮带 role=tab，两者可区分。
+      const rowLabelCount = (mode, key) => {
+        panelSnap = { ...baseSnap, mode, value: '' }
+        const nodes = flatten(moduleExports.BgPanel({ setBg: () => {}, text: (k) => k, ...panelSnap }))
+        return nodes.filter((n) => n.children === key && n.role !== 'tab' && n.style?.width === '44px').length
+      }
+      return rowLabelCount('color', 'color') === 0
+        && rowLabelCount('gradient', 'gradient') === 0
+        && rowLabelCount('image', 'image') === 0
+        && rowLabelCount('video', 'video') === 0
+    })())
+  }
+
+  // ---- #E 顶部区域 token + meta theme-color ----
+  {
+    const reveal = moduleExports.REVEAL_TOKENS
+    const top = moduleExports.TOP_REGION_TOKENS
+    check('A18 #E 顶部覆盖集合非空且每项都在透出集合里置 transparent',
+      Array.isArray(top) && top.length >= 2 && top.every((k) => reveal[k] === 'transparent'),
+      JSON.stringify(top))
+    check('A18 #E 顶部覆盖集合含 bg-base 与 sidebar-fill（源码查实的两个垫面 token）',
+      top.includes('--dsw-alias-bg-base') && top.includes('--dsw-specific-sidebar-fill'))
+    moduleExports.applyBg('color', '#0d1117')
+    check('A18 #E 引擎 CSS 真的把这两个 token 置 transparent（顶部区域随整窗透出）',
+      top.every((k) => styleText().includes(`${k}: transparent !important`)))
+    check('A18 #E color → meta theme-color 同步为该色（ThemePresenter 算不出透明底）',
+      moduleExports.bgThemeColorFor('color', '#0d1117', 'light') === 'rgb(13 17 23)'
+        && moduleExports.bgThemeColorFor('gradient', 'linear-gradient(135deg, #ffffff, #000000)', 'light') === 'rgb(128 128 128)'
+        && moduleExports.bgThemeColorFor('image', 'https://x/y.jpg', 'light') === '#0f1115'
+        && moduleExports.bgThemeColorFor('image', 'https://x/y.jpg', 'dark') === '#f7f8fa'
+        && moduleExports.bgThemeColorFor('off', '', null) === null,
+      JSON.stringify([
+        moduleExports.bgThemeColorFor('color', '#0d1117', 'light'),
+        moduleExports.bgThemeColorFor('gradient', 'linear-gradient(135deg, #ffffff, #000000)', 'light'),
+      ]))
+    const meta = head.children.find((n) => n.getAttribute('name') === 'theme-color')
+    check('A18 #E meta theme-color 真的写进了 head（content = 背景色）',
+      meta !== undefined && meta.getAttribute('content') === 'rgb(13 17 23)',
+      meta === undefined ? 'no meta' : String(meta.getAttribute('content')))
+    moduleExports.applyBg('off', '')
+    check('A18 #E 切回 off → 自建 meta 被移除（完整还原，不污染页面）',
+      head.children.filter((n) => n.getAttribute('name') === 'theme-color').length === 0)
+  }
 }
 
 // =====================================================================
@@ -885,10 +1460,18 @@ if (!hostImportsFailed) {
   const schema = bgSettings.buildBgSectionSchema(cfgDefaults)
   const schemaJson = JSON.stringify(schema.toJSON())
   const requiredFields = ['mode', 'value', 'fit', 'textScheme', 'loop', 'mediaKey',
-    'opacity', 'posX', 'posY', 'volume',
+    'opacity', 'posX', 'posY', 'scale', 'zoom', 'volume', 'glass',
     'imageExt', 'videoExt', 'maxImageMB', 'maxVideoMB', 'defaultFit', 'defaultTextScheme', 'defaultLoop']
   const missing = requiredFields.filter((field) => !schemaJson.includes(`"${field}"`))
-  check('B1 schema carries all v0.3 + v0.3.1 + v0.4 fields', missing.length === 0, `missing=${missing.join(',') || '-'}`)
+  check('B1 schema carries all v0.3 + v0.3.1 + v0.4 + v0.4.3 + v0.5.0 + v0.6.0 fields', missing.length === 0, `missing=${missing.join(',') || '-'}`)
+  check('B1 zoom 字段默认 1（v0.5.0；与 scale 0.25–4 是两个独立轴）', (() => {
+    const parsed = JSON.parse(schemaJson)
+    const dictOwner = Object.values(parsed.refs ?? {}).find((ref) => ref !== null && typeof ref === 'object'
+      && typeof ref.dict === 'object' && typeof ref.dict.zoom === 'number')
+    const zoomRef = dictOwner ? parsed.refs?.[dictOwner.dict.zoom] : undefined
+    return zoomRef?.type === 'number' && zoomRef?.meta?.default === 1
+      && zoomRef?.meta?.min === 1 && zoomRef?.meta?.max === 3
+  })(), 'zoom prop missing / default / range wrong')
   check('B1 mode union includes video', bgConfig.BG_MODES.includes('video') && bgConfig.BG_MODES.includes('off')
     && bgConfig.BG_MODES.length === 5)
   for (const fit of bgConfig.BG_FITS) {
@@ -959,6 +1542,76 @@ if (!hostImportsFailed) {
   const plainState = tool.executeBgApply({ mode: 'image', value: 'https://example.com/c.jpg' }, cfgDefaults)
   check('B2 omitted opacity/pos stay absent (no undefined pollution)',
     plainState.opacity === undefined && plainState.posX === undefined && plainState.posY === undefined)
+  // v0.4.3 scale（自由缩放）：倍数/百分数两种写法 + 吸附 0.05 + 越界拒绝
+  const scaleNum = tool.executeBgApply({ mode: 'image', value: 'https://example.com/c.jpg', scale: 1.5 }, cfgDefaults)
+  const scalePct = tool.executeBgApply({ mode: 'image', value: 'https://example.com/c.jpg', scale: '150%' }, cfgDefaults)
+  check('B2 scale factor + percent form (1.5 / "150%") → 1.5',
+    scaleNum.scale === 1.5 && scalePct.scale === 1.5, JSON.stringify({ a: scaleNum.scale, b: scalePct.scale }))
+  const scaleSnapped = tool.executeBgApply({ mode: 'image', value: 'https://example.com/c.jpg', scale: 1.23 }, cfgDefaults)
+  check('B2 scale snapped to 0.05 step (1.23 → 1.25)', scaleSnapped.scale === 1.25, `scale=${scaleSnapped.scale}`)
+  let badScale = null
+  try { tool.executeBgApply({ mode: 'image', value: 'https://example.com/c.jpg', scale: 0.1 }, cfgDefaults) } catch (e) { badScale = e?.message ?? String(e) }
+  check('B2 scale out of 0.25..4 rejected with hint', typeof badScale === 'string' && badScale.includes('scale'))
+  const offScale = tool.executeBgApply({ mode: 'off' }, cfgDefaults)
+  check('B2 mode=off resets scale to 1 (full reset)', offScale.scale === 1 && offScale.posX === 50 && offScale.opacity === 1)
+
+  // v0.5.0 zoom（放大聚焦 1..3）：倍数/百分数两种写法 + 吸附 0.05 + 越界拒绝 + off 回默认
+  const zoomNum = tool.executeBgApply({ mode: 'image', value: 'https://example.com/c.jpg', zoom: 2 }, cfgDefaults)
+  const zoomPct = tool.executeBgApply({ mode: 'image', value: 'https://example.com/c.jpg', zoom: '200%' }, cfgDefaults)
+  const zoomPctNum = tool.executeBgApply({ mode: 'image', value: 'https://example.com/c.jpg', zoom: 250 }, cfgDefaults)
+  check('B2 zoom 倍数/百分数写法（2 / "200%" / 250）→ 2 / 2 / 2.5',
+    zoomNum.zoom === 2 && zoomPct.zoom === 2 && zoomPctNum.zoom === 2.5,
+    JSON.stringify({ a: zoomNum.zoom, b: zoomPct.zoom, c: zoomPctNum.zoom }))
+  const zoomSnapped = tool.executeBgApply({ mode: 'video', value: 'https://example.com/b.mp4', zoom: 1.23 }, cfgDefaults)
+  check('B2 zoom snapped to 0.05 step (1.23 → 1.25)', zoomSnapped.zoom === 1.25, `zoom=${zoomSnapped.zoom}`)
+  let badZoomLow = null
+  try { tool.executeBgApply({ mode: 'image', value: 'https://example.com/c.jpg', zoom: 0.5 }, cfgDefaults) } catch (e) { badZoomLow = e?.message ?? String(e) }
+  check('B2 zoom 下限拒绝（0.5 < 1；缩小请用 scale）', typeof badZoomLow === 'string' && badZoomLow.includes('zoom') && badZoomLow.includes('scale'), String(badZoomLow))
+  let badZoomHigh = null
+  try { tool.executeBgApply({ mode: 'image', value: 'https://example.com/c.jpg', zoom: 400 }, cfgDefaults) } catch (e) { badZoomHigh = e?.message ?? String(e) }
+  check('B2 zoom 上限拒绝（400% > 300%）', typeof badZoomHigh === 'string' && badZoomHigh.includes('zoom'), String(badZoomHigh))
+  const offZoom = tool.executeBgApply({ mode: 'off' }, cfgDefaults)
+  check('B2 mode=off resets zoom to 1 (full reset)', offZoom.zoom === 1 && offZoom.scale === 1)
+  const plainZoom = tool.executeBgApply({ mode: 'image', value: 'https://example.com/c.jpg' }, cfgDefaults)
+  check('B2 未给 zoom 时不写入 zoom 字段（无 undefined 污染）', plainZoom.zoom === undefined)
+
+  // v0.6.0 glass（毛玻璃质感）：布尔 + 字符串真值 + off 回默认 false
+  const glassTrue = tool.executeBgApply({ mode: 'image', value: 'https://example.com/c.jpg', glass: true }, cfgDefaults)
+  check('B2 glass:true 通过并持久化', glassTrue.glass === true)
+  const glassStr = tool.executeBgApply({ mode: 'image', value: 'https://example.com/c.jpg', glass: 'true' }, cfgDefaults)
+  check('B2 glass 字符串 "true" 归一为 true', glassStr.glass === true)
+  const glassOff = tool.executeBgApply({ mode: 'off' }, cfgDefaults)
+  check('B2 mode=off resets glass to false', glassOff.glass === false)
+  const plainGlass = tool.executeBgApply({ mode: 'image', value: 'https://example.com/c.jpg' }, cfgDefaults)
+  check('B2 未给 glass 时不写入 glass 字段', plainGlass.glass === undefined)
+  let badGlass = null
+  try { tool.executeBgApply({ mode: 'image', value: 'https://example.com/c.jpg', glass: 'maybe' }, cfgDefaults) } catch (e) { badGlass = e?.message ?? String(e) }
+  check('B2 glass 非法值拒绝并提示布尔', typeof badGlass === 'string' && badGlass.includes('glass'))
+
+  // v0.6.0（需求 3）：跨类型 URL 校验 —— 图片栏不收视频链接，反之亦然
+  check('B1 urlExtOf / mediaUrlKindConflict 纯函数（client 与 tool 共用一份判断）', (() => {
+    const cfg = { imageExt: cfgDefaults.imageExt, videoExt: cfgDefaults.videoExt }
+    return bgConfig.urlExtOf('https://x/y/z.MP4?t=1') === 'mp4'
+      && bgConfig.urlExtOf('https://x/y/noext') === ''
+      && bgConfig.urlExtOf('https://x/y/') === ''
+      && bgConfig.mediaUrlKindConflict('https://x/a.mp4', 'image', cfg) === 'is-video'
+      && bgConfig.mediaUrlKindConflict('https://x/a.jpg', 'video', cfg) === 'is-image'
+      && bgConfig.mediaUrlKindConflict('https://x/a.jpg', 'image', cfg) === 'ok'
+      && bgConfig.mediaUrlKindConflict('https://x/a', 'image', cfg) === 'ok'
+  })())
+  let imgGotVideo = null
+  try { tool.executeBgApply({ mode: 'image', value: 'https://cdn.example.com/clip.mp4' }, cfgDefaults) } catch (e) { imgGotVideo = e?.message ?? String(e) }
+  check('B2 image 模式拒绝视频链接（.mp4）', typeof imgGotVideo === 'string' && imgGotVideo.includes('视频链接'), String(imgGotVideo))
+  let vidGotImage = null
+  try { tool.executeBgApply({ mode: 'video', value: 'https://cdn.example.com/pic.jpg' }, cfgDefaults) } catch (e) { vidGotImage = e?.message ?? String(e) }
+  check('B2 video 模式拒绝图片链接（.jpg）', typeof vidGotImage === 'string' && vidGotImage.includes('图片链接'), String(vidGotImage))
+  const noExtUrl = tool.executeBgApply({ mode: 'image', value: 'https://cdn.example.com/image?id=42' }, cfgDefaults)
+  check('B2 无扩展名动态地址放行（无法判定 ≠ 非法）', noExtUrl.mode === 'image')
+  const queryUrl = tool.executeBgApply({ mode: 'image', value: 'https://cdn.example.com/a.jpg?w=1' }, cfgDefaults)
+  check('B2 带 query 的图片地址放行（扩展名取自 path）', queryUrl.mode === 'image')
+  check('bg-config exposes BG_CSS_SAFE (client 渐变载荷与 tool 同一份字符集白名单)',
+    bgConfig.BG_CSS_SAFE instanceof RegExp && bgConfig.BG_CSS_SAFE.test('linear-gradient(135deg, #fff, #000)')
+      && !bgConfig.BG_CSS_SAFE.test('linear-gradient(#fff); body{display:none}'))
 
   // local fixtures in a temp dir
   const tmp = mkdtempSync(join(tmpdir(), 'dsh-bg-verify-'))
@@ -1040,7 +1693,10 @@ if (!hostImportsFailed) {
       check('B6 upload: over image limit → 400 Chinese hint', over.ok === false && over.status === 400
         && over.message.includes('上限') && over.message.includes('10MB'), JSON.stringify(over))
       const overVideo = mediaModule.validateUpload('video', 'mp4', 501 * 1024 * 1024, cfgDefaults)
-      check('B6 upload: over video limit → 400', overVideo.ok === false && overVideo.message.includes('500MB'), JSON.stringify(overVideo))
+      check('B6 upload: 视频不设体积上限（需求 4：501MB 也放行）',
+        overVideo.ok === true && overVideo.limitBytes === Number.MAX_SAFE_INTEGER, JSON.stringify(overVideo))
+      const hugeVideo = mediaModule.validateUpload('video', 'mp4', 80 * 1024 * 1024 * 1024, cfgDefaults)
+      check('B6 upload: 视频超大体积同样放行（80GB）', hugeVideo.ok === true, JSON.stringify(hugeVideo))
       const customCfgLimit = { ...cfgDefaults, maxImageMB: 1 }
       const overCustom = mediaModule.validateUpload('image', 'png', 2 * 1024 * 1024, customCfgLimit)
       check('B6 upload: limit follows config', overCustom.ok === false && overCustom.message.includes('1MB'), JSON.stringify(overCustom))
@@ -1087,6 +1743,8 @@ if (!hostImportsFailed) {
     const indexApply = indexSrc.slice(indexSrc.indexOf('export function apply'))
     check('B7 index.ts no longer nests style plugin (single media/tool loader)',
       !indexApply.includes('style'), 'style plugin still mounted in index.apply()')
+    check('B7 index.ts no longer mounts the v0.5.0 panel route (独立窗口已移除)',
+      !indexApply.includes('panelPlugin'), 'panel plugin still mounted')
     // 只看 style.ts 的 apply 函数体：必须是 no-op（无 ctx/事件/注入）
     const styleBody = styleSrc.slice(styleSrc.indexOf('export function apply'), styleSrc.lastIndexOf('}'))
     check('B7 style.ts apply() is a no-op (no index-inject listener)',
@@ -1094,6 +1752,10 @@ if (!hostImportsFailed) {
     check('B7 style.ts no longer emits body media CSS',
       !/function buildBackgroundCss/.test(styleSrc) && !styleSrc.includes('readBgState'))
   }
+
+  // B8) v0.5.0 独立设置窗口已整体移除（panel.ts 删除、bg-settings 的
+  // BG_PANEL_WRITABLE_FIELDS / validateBgFieldPatch / writeBgFields /
+  // bgPanelStateSnapshot 一并删除）—— 相关断言随之下线。
 
   // ---- host config.json read: default / override / broken ----
   const prevDshHome = process.env.DSH_HOME

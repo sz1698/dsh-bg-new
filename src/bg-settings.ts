@@ -36,6 +36,17 @@
  *   引擎按 sound 是否开启推导，见 src/client/index.ts）。
  * - 上传/登记的本地媒体不再把原文件内容写进 value：value 留空或写原路径，
  *   mediaKey 指向 host 媒体目录 /dsh-bg-media/<key>（见 src/media.ts v0.4）。
+ *
+ * v0.5.0 schema 变化：
+ * - 新增运行时字段 zoom（1..3，step 0.05，默认 1=不缩放）：在 fit 基准尺寸上
+ *   放大内容（image → background-size；video → transform: scale），缩放中心 =
+ *   焦点 posX/posY。与 v0.4.3 的 scale（0.25–4，可缩小）并存：zoom 是面板与
+ *   独立设置窗口的主缩放控件，scale 保留为兼容字段（旧 settings 里的值仍生效）。
+ * - 新增**独立设置窗口**的写入通道（src/panel.ts 的路由调用）：
+ *   {@link BG_PANEL_WRITABLE_FIELDS}（字段白名单）、
+ *   {@link validateBgFieldPatch}（纯校验：白名单 + 类型 + 范围 + 步长吸附）、
+ *   {@link writeBgFields}（走本模块的持久化路径：有 settings provider 写命名空间，
+ *   否则并进 state.json 回退镜像）。
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -43,7 +54,21 @@ import z from '@deepseek-ai/schemastery'
 import { readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
-import { BG_FITS, BG_MODES, BG_TEXT_SCHEMES, type BgFit, type BgMode, type BgTextScheme } from './bg-config.ts'
+import {
+  BG_FITS,
+  BG_GLASS_DEFAULT,
+  BG_MODES,
+  BG_SCALE_DEFAULT,
+  BG_SCALE_MAX,
+  BG_SCALE_MIN,
+  BG_TEXT_SCHEMES,
+  BG_ZOOM_DEFAULT,
+  BG_ZOOM_MAX,
+  BG_ZOOM_MIN,
+  type BgFit,
+  type BgMode,
+  type BgTextScheme,
+} from './bg-config.ts'
 import { loadBgConfig, type ResolvedBgConfig } from './config.ts'
 import { readState, writeState, type BgState } from './state.ts'
 
@@ -78,8 +103,14 @@ export interface BgSectionDoc extends BgConfigMirror {
   posX: number
   /** 焦点垂直定位 0..100（%）（image/video；默认 50=居中）。 */
   posY: number
+  /** 媒体缩放 0.25..4（image/video；v0.4.3 新增；默认 1=不缩放，焦点为缩放中心）。 */
+  scale: number
+  /** 放大聚焦 1..3（image/video；v0.5.0 新增；默认 1=不缩放，焦点为缩放中心）。 */
+  zoom: number
   /** 视频音量 0..1（默认 1=满音量；「声音」开关是运行时态不进 schema）。 */
   volume: number
+  /** 毛玻璃质感（v0.6.0 新增；默认 false=关闭：表面半透明 + 背景模糊）。 */
+  glass: boolean
 }
 
 /**
@@ -99,8 +130,14 @@ export function buildBgSectionSchema(cfg: ResolvedBgConfig['config']): z<BgSecti
     opacity: z.number().min(0).max(1).step(0.05).default(1),
     posX: z.number().min(0).max(100).default(50),
     posY: z.number().min(0).max(100).default(50),
+    // v0.4.3：媒体缩放（0.25..4，step 0.05，默认 1=不缩放；焦点为缩放中心）
+    scale: z.number().min(BG_SCALE_MIN).max(BG_SCALE_MAX).step(0.05).default(BG_SCALE_DEFAULT),
+    // v0.5.0：放大聚焦 zoom（1..3，step 0.05，默认 1=不缩放；焦点为缩放中心）
+    zoom: z.number().min(BG_ZOOM_MIN).max(BG_ZOOM_MAX).step(0.05).default(BG_ZOOM_DEFAULT),
     // v0.4：视频音量（0..1，step 0.05，默认 1=满音量）
     volume: z.number().min(0).max(1).step(0.05).default(1),
+    // v0.6.0：毛玻璃质感（默认 false=关闭）
+    glass: z.boolean().default(BG_GLASS_DEFAULT),
     // 只读镜像字段（无写者；进程内与 config.json 一致）
     imageExt: z.array(z.string()).default([...cfg.imageExt]),
     videoExt: z.array(z.string()).default([...cfg.videoExt]),
@@ -201,7 +238,10 @@ export async function persistBgState(state: BgState): Promise<BgPersistResult> {
     if (state.opacity !== undefined) patch.opacity = state.opacity
     if (state.posX !== undefined) patch.posX = state.posX
     if (state.posY !== undefined) patch.posY = state.posY
+    if (state.scale !== undefined) patch.scale = state.scale
+    if (state.zoom !== undefined) patch.zoom = state.zoom
     if (state.volume !== undefined) patch.volume = state.volume
+    if (state.glass !== undefined) patch.glass = state.glass
     await activeScope.update(patch)
     return { target: 'settings' }
   }
@@ -227,7 +267,10 @@ export function readBgState(): BgState {
       opacity: typeof doc.opacity === 'number' ? doc.opacity : 1,
       posX: typeof doc.posX === 'number' ? doc.posX : 50,
       posY: typeof doc.posY === 'number' ? doc.posY : 50,
+      scale: typeof doc.scale === 'number' ? doc.scale : BG_SCALE_DEFAULT,
+      zoom: typeof doc.zoom === 'number' ? doc.zoom : BG_ZOOM_DEFAULT,
       volume: typeof doc.volume === 'number' ? doc.volume : 1,
+      glass: typeof doc.glass === 'boolean' ? doc.glass : BG_GLASS_DEFAULT,
       updatedAt: '',
     }
   }
@@ -243,7 +286,11 @@ export function readBgState(): BgState {
     opacity: state.opacity ?? 1,
     posX: state.posX ?? 50,
     posY: state.posY ?? 50,
+    scale: state.scale ?? BG_SCALE_DEFAULT,
+    zoom: state.zoom ?? BG_ZOOM_DEFAULT,
     volume: state.volume ?? 1,
+    glass: state.glass ?? BG_GLASS_DEFAULT,
     updatedAt: state.updatedAt,
   }
 }
+

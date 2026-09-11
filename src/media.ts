@@ -3,8 +3,10 @@
  *
  * v0.3 起为本地背景视频提供流式伺服；v0.4 扩为通用「上传+伺服」：
  * - **POST /dsh-bg-media/upload?kind=image|video&ext=<ext>**：body = 原始文件流。
- *   按 kind 校验扩展名（image 用 config.imageExt / video 用 videoExt，含默认表）
- *   与体积上限（maxImageMB 默认 10 / maxVideoMB 默认 500）；通过后写入
+ *   按 kind 校验扩展名（image 用 config.imageExt / video 用 videoExt，含默认表）；
+ *   **体积上限只对 image 生效**（config.maxImageMB 默认 10MB）—— v0.6.0 起视频
+ *   不设上限（需求：背景视频大小不要设限制），limitBytes 用 MAX_SAFE_INTEGER
+ *   表示"不限制"（流式落盘的超限中止因此永不触发）。通过后写入
  *   `$DSH_HOME/dsh-bg-switch/media/<uuid>.<ext>`（dshHomePath 来自
  *   @deepseek-ai/dsh-home-paths）。响应 JSON `{ok:true, mediaKey:'<uuid>'}`；
  *   非法扩展 / 超限 / 坏参数 → 400 + 中文 message。
@@ -172,10 +174,14 @@ export function validateUpload(
   if (!allowed.includes(ext)) {
     return { ok: false, status: 400, message: `dsh-bg-media: 不支持的${kind === 'image' ? '图片' : '视频'}类型 .${ext}（允许 ${allowed.join(' / ')}）` }
   }
-  const limitMB = kind === 'image' ? cfg.maxImageMB : cfg.maxVideoMB
+  // v0.6.0：**视频不设体积上限**（需求：背景视频大小不要设限制）；图片仍按
+  // config.maxImageMB 校验。返回的 limitBytes 同时供流式落盘的超限中止使用，
+  // 视频用 MAX_SAFE_INTEGER 表示"不限制"（received > limitBytes 永不成立）。
+  if (kind === 'video') return { ok: true, limitBytes: Number.MAX_SAFE_INTEGER }
+  const limitMB = cfg.maxImageMB
   const limitBytes = Math.round(limitMB * 1024 * 1024)
   if (size !== null && Number.isFinite(size) && size > limitBytes) {
-    return { ok: false, status: 400, message: `dsh-bg-media: 文件 ${size} 字节超过上限 ${limitMB}MB（kind=${kind}）` }
+    return { ok: false, status: 400, message: `dsh-bg-media: 文件 ${size} 字节超过上限 ${limitMB}MB（kind=image）` }
   }
   return { ok: true, limitBytes }
 }
@@ -367,7 +373,7 @@ async function handleUpload(req: IncomingMessage, res: ServerResponse): Promise<
       failed = true
       out.destroy()
       rmSync(tmpPath, { force: true })
-      jsonResponse(res, 400, { ok: false, message: `dsh-bg-media: 上传超过上限 ${Math.round(limitBytes / 1024 / 1024)}MB（kind=${req.url?.includes('kind=image') ? 'image' : 'video'}）` })
+      jsonResponse(res, 400, { ok: false, message: `dsh-bg-media: 上传超过上限 ${Math.round(limitBytes / 1024 / 1024)}MB（kind=image）` })
       req.resume()
       return
     }

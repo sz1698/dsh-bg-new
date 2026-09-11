@@ -1,15 +1,50 @@
 {
   "name": "dsh-bg-switch",
-  "version": "0.4.2",
-  "private": true,
+  "version": "0.6.0",
+  "description": "DSH 插件：给 DeepSeek Harness 换网页界面背景（系统预设/纯色/渐变/图片/视频）。侧栏「壁纸」按钮弹出右侧抽屉，滚轮+拖动的小图同时管缩放与定位，支持毛玻璃质感、本地媒体伺服、客户端即时生效并持久化到 settings；模型也可用 bg_apply 工具直接换。",
   "type": "module",
-  "description": "DSH plugin: 模型对话或可视化设置面板更换 DeepSeek Harness 界面背景（纯色/渐变/壁纸图片/背景视频），本地媒体上传伺服、客户端即时生效、表面文字自适应并持久化到 settings。",
+  "license": "MIT",
+  "author": "sz1698",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sz1698/dsh-bg-switch.git"
+  },
+  "homepage": "https://github.com/sz1698/dsh-bg-switch#readme",
+  "bugs": {
+    "url": "https://github.com/sz1698/dsh-bg-switch/issues"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "dsh",
+    "wallpaper",
+    "background",
+    "theme",
+    "glassmorphism"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "main": "./lib/index.js",
   "exports": {
+    ".": "./lib/index.js",
     "./client": "./lib/client.js",
-    "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
+  "files": [
+    "lib/**",
+    "cordis.patch.yml",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
       "inject": [
@@ -20,15 +55,22 @@
       "immediately": true
     }
   },
-  "dependencies": {
-    "@deepseek-ai/dsh-home-paths": "0.1.2-rc.1",
-    "@deepseek-ai/schemastery": "3.18.2",
-    "@deepseek-ai/dsh-tools": "0.1.2-rc.1"
-  },
-  "scripts": {
-    "build:client": "tsdown"
+  "peerDependencies": {
+    "@deepseek-ai/dsh-home-paths": ">=0.1.2-rc.1",
+    "@deepseek-ai/dsh-tools": ">=0.1.2-rc.1",
+    "@deepseek-ai/schemastery": ">=3.18.2"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-home-paths": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-tools": "0.1.2-rc.1",
+    "@deepseek-ai/schemastery": "3.18.2",
     "tsdown": "0.22.2"
+  },
+  "scripts": {
+    "build": "npm run build:client && npm run build:host",
+    "build:client": "tsdown",
+    "build:host": "tsdown --config tsdown.host.config.ts",
+    "verify": "node build/verify-client.mjs",
+    "prepublishOnly": "npm run build"
   }
 }

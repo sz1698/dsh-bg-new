@@ -31,6 +31,74 @@ export type BgFit = (typeof BG_FITS)[number]
 export const BG_TEXT_SCHEMES = ['auto', 'light', 'dark'] as const
 export type BgTextScheme = (typeof BG_TEXT_SCHEMES)[number]
 
+// ---- 媒体缩放（v0.4.3，UI 滑杆 + bg_apply + settings schema 共用） ----
+
+/** 媒体缩放上限（4 = 放大到 400%）。 */
+export const BG_SCALE_MAX = 4
+/** 媒体缩放下限（0.25 = 缩到 25%，可看到整体留白）。 */
+export const BG_SCALE_MIN = 0.25
+/** 媒体缩放默认值（1 = 不缩放）。 */
+export const BG_SCALE_DEFAULT = 1
+
+// ---- 缩放 zoom（v0.5.0 字段，UI 滑杆 + bg_apply + settings schema 共用） ----
+
+/**
+ * zoom 上限（3 = 放大到 300%）。与 v0.4.3 的 `scale`（0.25–4）不同：zoom 是
+ * 「放大聚焦」专用轴，范围为 1–3（不允许缩小），语义 = 在 fit 给出的基准尺寸上
+ * 按倍数放大内容，缩放中心 = 焦点 posX/posY（见 src/client/bg-palette.ts
+ * bgMediaRender 的映射与注释）。
+ */
+export const BG_ZOOM_MAX = 3
+/** zoom 下限（1 = 不缩放）。 */
+export const BG_ZOOM_MIN = 1
+/** zoom 默认值（1 = 不缩放）。 */
+export const BG_ZOOM_DEFAULT = 1
+
+// ---- 毛玻璃质感（v0.6.0 字段，UI 开关 + bg_apply + settings schema 共用） ----
+
+/** 毛玻璃质感默认值（false = 关闭，表面维持当前半透明但不模糊）。 */
+export const BG_GLASS_DEFAULT = false
+
+// ---- v0.6.0：远程媒体 URL 类型校验（图片栏不收视频链接，反之亦然） ----
+
+/**
+ * 取 URL 路径部分的扩展名（无点、小写；已去 query/hash）。
+ *
+ * 无法判定时返回 ''（目录结尾、无扩展名、非法 URL）—— 调用方对 '' 一律放行：
+ * CDN 上「无扩展名的动态图片地址」很常见，无法判定 ≠ 非法。
+ */
+export function urlExtOf(url: string): string {
+  const clean = (url.trim().split(/[?#]/)[0] ?? '')
+  const slash = Math.max(clean.lastIndexOf('/'), clean.lastIndexOf('\\'))
+  const dot = clean.lastIndexOf('.')
+  if (dot < 0 || dot < slash) return ''
+  const ext = clean.slice(dot + 1).toLowerCase()
+  return /^[a-z0-9]{1,12}$/.test(ext) ? ext : ''
+}
+
+/**
+ * 跨类型 URL 校验（client UI 与 bg_apply 共用同一份判断）。
+ * @param url - 用户/模型给的 http(s) 地址。
+ * @param kind - 该输入框/该次调用期望的媒体类型。
+ * @param ext - 允许的扩展名表（config 的 imageExt / videoExt）。
+ * @returns 'ok'（放行）/ 'is-video'（图片栏收到视频链接）/ 'is-image'（视频栏收到图片链接）。
+ */
+export function mediaUrlKindConflict(
+  url: string,
+  kind: 'image' | 'video',
+  ext: { imageExt: readonly string[]; videoExt: readonly string[] },
+): 'ok' | 'is-video' | 'is-image' {
+  const suffix = urlExtOf(url)
+  if (suffix === '') return 'ok'
+  const inImage = ext.imageExt.includes(suffix)
+  const inVideo = ext.videoExt.includes(suffix)
+  if (kind === 'image') return inVideo && !inImage ? 'is-video' : 'ok'
+  return inImage && !inVideo ? 'is-image' : 'ok'
+}
+
+/** CSS 载荷安全字符集（与 src/tool.ts 同一份规则，阻止注入分号/花括号拆规则）。 */
+export const BG_CSS_SAFE = /^[A-Za-z0-9#(),.%\s/\-]+$/
+
 // ---- 扩展名 → MIME（本地 file 校验 / 媒体路由 Content-Type 共用） ----
 
 export const IMAGE_EXT_TO_MIME: Record<string, string> = {

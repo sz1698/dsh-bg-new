@@ -11,6 +11,9 @@
  * （settings 命名空间有这些字段时以 settings 为准，state.json 仅作无 settings
  * provider 的回退镜像，按需写入可选字段）。
  * v0.4：新增可选 volume（0..1 媒体音量，默认 1；state.json 回退镜像同样按需写入）。
+ * v0.4.3：新增可选 scale（0.25..4 媒体自由缩放）。
+ * v0.5.0：新增可选 zoom（1..3 放大聚焦；「独立设置窗口」的路由也经 settings
+ * 命名空间写它 —— 无 settings provider 时回退本文件的 state.json）。
  */
 
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
@@ -46,8 +49,14 @@ export interface BgState {
   posX?: number
   /** 焦点垂直定位 0..100（%）（image/video；v0.3.1 新增，缺省 50=居中）。 */
   posY?: number
+  /** 媒体缩放 0.25..4（v0.4.3 新增；缺省 1=不缩放，焦点为缩放中心）。 */
+  scale?: number
+  /** 放大聚焦 1..3（v0.5.0 新增；缺省 1=不缩放，缩放中心 = 焦点 posX/posY）。 */
+  zoom?: number
   /** 视频音量 0..1（v0.4 新增；缺省 1=满音量）。 */
   volume?: number
+  /** 毛玻璃质感（v0.6.0 新增；缺省 false=关闭）。 */
+  glass?: boolean
   /** 更新时间（ISO）。 */
   updatedAt: string
 }
@@ -77,7 +86,10 @@ export function readState(): BgState {
           opacity: typeof p.opacity === 'number' ? p.opacity : undefined,
           posX: typeof p.posX === 'number' ? p.posX : undefined,
           posY: typeof p.posY === 'number' ? p.posY : undefined,
+          scale: typeof p.scale === 'number' ? p.scale : undefined,
+          zoom: typeof p.zoom === 'number' ? p.zoom : undefined,
           volume: typeof p.volume === 'number' ? p.volume : undefined,
+          glass: typeof p.glass === 'boolean' ? p.glass : undefined,
         }
       }
     }
