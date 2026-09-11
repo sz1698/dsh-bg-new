@@ -1,5 +1,5 @@
 /**
- * dsh-bg-switch —— client 纯工具：亮度/文字方案推导与表面 token 调色板。
+ * dsh-bg-new —— client 纯工具：亮度/文字方案推导与表面 token 调色板。
  *
  * 契约依据（host 只读参考树，写入注释供复核）：
  * - 可覆盖 token 名单：packages/client/ui-theme/src/client/index.ts 的
@@ -497,7 +497,7 @@ const GLASS_SURFACE_TOKENS_DARK: Record<string, string> = {
   '--dsw-alias-tooltip-bg': 'rgb(44 44 46 / 0.6)',
 }
 
-/** 毛玻璃质感下的内容面 token 覆盖（仅 surface 键；随 body[data-dsh-bg-glass] 输出）。 */
+/** 毛玻璃质感下的内容面 token 覆盖（仅 surface 键；随 body[data-dsh-bg-new-glass] 输出）。 */
 export function glassSurfaceTokensForTextScheme(scheme: 'light' | 'dark'): Record<string, string> {
   return scheme === 'light' ? GLASS_SURFACE_TOKENS_LIGHT : GLASS_SURFACE_TOKENS_DARK
 }
@@ -511,7 +511,7 @@ export const GLASS_BACKDROP_FILTER = 'blur(16px) saturate(1.2)'
  * （气泡/菜单等）只靠上面的表面 token 半透明获得"透出"玻璃感（不模糊）。
  */
 export const GLASS_BACKDROP_SELECTOR =
-  '[data-dsh-bg-drawer], div[role="dialog"][aria-modal="true"], [data-composer-card]'
+  '[data-dsh-bg-new-drawer], div[role="dialog"][aria-modal="true"], [data-composer-card]'
 
 // ---- v0.4.4 (#5)：设置面板里的背景预览取色 ----
 
@@ -701,7 +701,7 @@ export interface BgMediaRenderInput {
 /**
  * 计算 image/video 的渲染 CSS（v0.5.0 规格 A「与真实渲染同源同参」）。
  *
- * 单一真源的意义：真实全屏层（`<style id="dsh-bg-style">` 文本）与设置页里的
+ * 单一真源的意义：真实全屏层（`<style id="dsh-bg-new-style">` 文本）与设置页里的
  * **预览画布**都调本函数 —— 预览不可能与真实效果漂移（fit/焦点/zoom/scale/
  * opacity 全部同一份公式）。mockup 缩略图那种"另写一套"的做法 v0.5.0 已删除。
  *

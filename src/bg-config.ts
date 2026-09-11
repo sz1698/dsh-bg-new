@@ -1,5 +1,5 @@
 /**
- * dsh-bg-switch —— 共享纯配置核心（host 与 client 两半共用，零依赖、可进 bundle）。
+ * dsh-bg-new —— 共享纯配置核心（host 与 client 两半共用，零依赖、可进 bundle）。
  *
  * 职责（v0.3 规格 5「格式/大小配置」）：
  * - 内置默认表与类型：image/video 允许扩展名、单文件上限、defaultFit /
@@ -7,7 +7,7 @@
  *   image: png/jpg/jpeg/gif/webp/svg/avif/bmp/ico；video: mp4/webm/ogg/ogv/mov/m4v；
  *   maxImageMB=10；maxVideoMB=500；defaultFit='cover'；defaultTextScheme='auto'；
  *   defaultLoop=true。
- * - normalizeBgConfig(raw)：把 $DSH_HOME/dsh-bg-switch/config.json 的未知形状
+ * - normalizeBgConfig(raw)：把 $DSH_HOME/dsh-bg-new/config.json 的未知形状
  *   逐字段校验/清洗成合法的 BgConfig：非法字段回退内置默认并记一条 issue
  *   （host 启动时记日志），合法字段照单全收。
  * - 本文件刻意不 import 任何 node: 模块：host 侧 src/config.ts 包装文件读取，

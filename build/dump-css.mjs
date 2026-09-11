@@ -60,6 +60,6 @@ const mod = sandbox.__reg.factory((s) => {
 const mode = process.argv[2] ?? 'color'
 const value = process.argv[3] ?? '#0d1117'
 mod.applyBg(mode, value)
-const style = head.children.find((n) => n.getAttribute('id') === 'dsh-bg-style')
+const style = head.children.find((n) => n.getAttribute('id') === 'dsh-bg-new-style')
 console.log(`/* ---- ${mode} ${value} ---- */`)
 console.log(style.textContent)

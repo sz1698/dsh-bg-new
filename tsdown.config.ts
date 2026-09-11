@@ -1,5 +1,5 @@
 /**
- * dsh-bg-switch 独立复刻版 client bundle 配置 —— 对应官方
+ * dsh-bg-new 独立复刻版 client bundle 配置 —— 对应官方
  * packages/client/tsdown.client.ts 里 clientConfig(id, entry) 的最小可复刻子集：
  *   - 闭包契约：banner/intro/footer 原样照抄（window.__ModuleLoader__.load）
  *   - externals：客户端基线（PLATFORM_MODULES，值照抄 platform.ts）+ 本包
@@ -15,7 +15,7 @@
 import { defineConfig } from 'tsdown'
 
 /** 包名 = module-table 行 id；必须与 package.json 的 name 一致。 */
-const PLUGIN_ID = 'dsh-bg-switch'
+const PLUGIN_ID = 'dsh-bg-new'
 
 /**
  * Client 基线 externals —— 值直接照抄官方

@@ -1,10 +1,10 @@
-# dsh-bg-switch —— 组合包（bundle）patch 层
+# dsh-bg-new —— 组合包（bundle）patch 层
 #
-# 这是**分发用**的 patch：用户 `dsh plugin add dsh-bg-switch` 安装本包后，
+# 这是**分发用**的 patch：用户 `dsh plugin add dsh-bg-new` 安装本包后，
 # dsh 会把这个包追加进 profile 的 `dsh.profile.bundles`，并在启动时应用本文件。
 #
 # 与仓库根目录 cordis.yml 的区别（两者不能混用）：
-#   - 本文件的行按 **包名** 引用（`name: dsh-bg-switch`），由 Node 从 profile 的
+#   - 本文件的行按 **包名** 引用（`name: dsh-bg-new`），由 Node 从 profile 的
 #     node_modules 解析到本包的 `exports["."]` → `lib/index.js`（已构建产物）。
 #     这是给"装进 profile"的分发路径用的。
 #   - cordis.yml 的行按 **file:// 源码路径** 引用 `src/index.ts`，是本地开发时
@@ -12,7 +12,7 @@
 #
 # 本包只允许一个 loader 行：dsh-client-modules 扫描按包名去重，同一个包出现
 # 两个活动 loader 源会在激活时直接抛
-# "package dsh-bg-switch resolves from multiple active Loader sources"。
+# "package dsh-bg-new resolves from multiple active Loader sources"。
 - insert:
-    - id: dsh-bg-switch
-      name: dsh-bg-switch
+    - id: dsh-bg-new
+      name: dsh-bg-new

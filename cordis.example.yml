@@ -1,0 +1,15 @@
+# dsh-bg-new —— 本地开发用 overlay 模板
+#
+# 用法：
+#   1) 复制成 cordis.yml（`cordis.yml` 被 .gitignore 忽略，因为它必然包含你本机
+#      clone 的绝对路径，不适合上传）；
+#   2) 把下面的 <ABSOLUTE-PATH-TO-CLONE> 换成本机 clone 的绝对路径，Windows 用
+#      正斜杠，例如 file:///C:/src/dsh-bg-new/src/index.ts；
+#   3) 用它启动：dsh --profile <profile> --patch ./cordis.yml
+#
+# 这是"改源码即时生效"的开发路径：宿主用 tsx 直接吃 TS，不需要构建。
+# 与**分发**用的 cordis.patch.yml（行按包名、走 lib/index.js）是两种东西，
+# 同一个包不能同时存在两个活动 loader 源（dsh-client-modules 按包名去重）。
+- insert:
+    - id: dsh-bg-new
+      name: 'file:///<ABSOLUTE-PATH-TO-CLONE>/src/index.ts'

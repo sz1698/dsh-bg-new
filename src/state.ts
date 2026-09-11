@@ -1,7 +1,7 @@
 /**
- * dsh-bg-switch —— 背景状态读写（host 各插件共享；settings 缺失时回退镜像）。
+ * dsh-bg-new —— 背景状态读写（host 各插件共享；settings 缺失时回退镜像）。
  *
- * 状态持久化在 DSH 用户数据区：$DSH_HOME/dsh-bg-switch/state.json
+ * 状态持久化在 DSH 用户数据区：$DSH_HOME/dsh-bg-new/state.json
  * （DSH_HOME 未设置时默认 ~/.dsh；桌面版会指向其自己的 dsh-home）。
  * 放在用户数据区而不是插件目录旁：插件可能从只读位置加载，
  * 而这里保证可写、且重启后不丢。
@@ -16,8 +16,8 @@
  * 命名空间写它 —— 无 settings provider 时回退本文件的 state.json）。
  */
 
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import type { BgFit, BgMode, BgTextScheme } from './bg-config.ts'
 
@@ -41,7 +41,7 @@ export interface BgState {
   textScheme?: BgTextScheme
   /** 视频循环（UI 可选持久化）。 */
   loop?: boolean
-  /** 本地视频的媒体键（host webServer /dsh-bg-media/<key> 按它找文件）。 */
+  /** 本地视频的媒体键（host webServer /dsh-bg-new-media/<key> 按它找文件）。 */
   mediaKey?: string
   /** 媒体不透明度 0..1（image/video 渲染用；v0.3.1 新增，缺省 1=不透明）。 */
   opacity?: number
@@ -63,8 +63,48 @@ export interface BgState {
 
 export const EMPTY_STATE: BgState = { mode: 'off', value: '', updatedAt: '' }
 
+/** 数据目录名（state.json / config.json / media 都在它下面）。 */
+const BG_HOME_DIR = 'dsh-bg-new'
+/**
+ * 历次改名前用过的老目录名，**从新到旧**排列：
+ * - `dsh-bg`：v0.6.0 的短名字（v0.7.0 改名为 dsh-bg-new）
+ * - `dsh-bg-switch`：最早的仓库名/包名
+ */
+const BG_HOME_DIR_LEGACY = ['dsh-bg', 'dsh-bg-switch'] as const
+
+/**
+ * 本插件的数据目录绝对路径（`$DSH_HOME/dsh-bg-new`）。
+ *
+ * **改名兼容**：包名/目录名一路从 `dsh-bg-switch` → `dsh-bg`（v0.6.0）→
+ * `dsh-bg-new`（v0.7.0）。老用户（新目录还没建、某个老目录还在）**继续用最接近的
+ * 那个老目录** —— 既不复制也不搬动可能几百 MB 的媒体文件，壁纸/视频与
+ * config.json 原样可用；全新安装（哪个目录都没有）直接用新名字。一旦新目录出现
+ * （例如用户手动搬过），就切到新目录。
+ *
+ * 刻意**不缓存**结果：`DSH_HOME` 会被测试重定向，缓存会把路径钉死。
+ */
+export function bgHomeDir(): string {
+  const next = dshHomePath(BG_HOME_DIR)
+  try {
+    if (!existsSync(next)) {
+      for (const legacyName of BG_HOME_DIR_LEGACY) {
+        const legacy = dshHomePath(legacyName)
+        if (existsSync(legacy)) return legacy
+      }
+    }
+  } catch {
+    // 探测失败（权限/异常）→ 按新目录处理
+  }
+  return next
+}
+
+/** 数据目录下的路径（如 `state.json`、`config.json`、`media/<key>.<ext>`）。 */
+export function bgDataPath(...segments: string[]): string {
+  return join(bgHomeDir(), ...segments)
+}
+
 function statePath(): string {
-  return dshHomePath('dsh-bg-switch', 'state.json')
+  return bgDataPath('state.json')
 }
 
 /** 同步读取当前状态；文件缺失或损坏时返回空状态。 */

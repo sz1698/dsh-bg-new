@@ -1,5 +1,5 @@
 /**
- * Structural + functional verification for dsh-bg-switch v0.4.0.
+ * Structural + functional verification for dsh-bg-new v0.4.0.
  *
  * Two parts:
  *  A) Client bundle (lib/client.js) inside a VM with a fake window.__ModuleLoader__,
@@ -17,7 +17,7 @@
  *     mediaKey registration (no data-URI inlining anymore), mode=off full reset,
  *     media upload validation / store / resolve (temp $DSH_HOME), extension/size
  *     rejects, style.ts no-op + index.ts no style nesting (single renderer), and
- *     $DSH_HOME/dsh-bg-switch/config.json default/override/broken reads.
+ *     $DSH_HOME/dsh-bg-new/config.json default/override/broken reads.
  *
  * Run:  node build/verify-client.mjs     (exit 0 = ALL PASS)
  */
@@ -187,8 +187,8 @@ vm.createContext(sandbox)
 vm.runInContext(code, sandbox)
 
 // helpers over the fake DOM
-const layerNodes = () => body.children.filter((node) => node.getAttribute('data-dsh-bg-layer') === '')
-const styleNodes = () => head.children.filter((node) => node.tagName === 'style' && node.getAttribute('id') === 'dsh-bg-style')
+const layerNodes = () => body.children.filter((node) => node.getAttribute('data-dsh-bg-new-layer') === '')
+const styleNodes = () => head.children.filter((node) => node.tagName === 'style' && node.getAttribute('id') === 'dsh-bg-new-style')
 const styleText = () => (styleNodes()[0] ? styleNodes()[0].textContent : '')
 const videosIn = () => {
   const layers = layerNodes()
@@ -197,7 +197,7 @@ const videosIn = () => {
 
 check('A1 exactly one registration', registrations.length === 1, `count=${registrations.length}`)
 const registration = registrations[0]
-check('A1 registration id == "dsh-bg-switch"', registration?.id === 'dsh-bg-switch', JSON.stringify(registration?.id))
+check('A1 registration id == "dsh-bg-new"', registration?.id === 'dsh-bg-new', JSON.stringify(registration?.id))
 check('A1 registration has a factory function', typeof registration?.factory === 'function')
 check('A2 bundle opens with loader banner', code.startsWith(banner))
 check('A2 bundle closes with }; })', code.trimEnd().endsWith('});'))
@@ -384,8 +384,8 @@ moduleExports.apply(fakeCtx)
 
 check('A8 registers two slots (sidebar.footer.action + shell.overlay)',
   registeredSlots.length === 2
-    && registeredSlots.some((s) => s.options.name === 'sidebar.footer.action' && s.options.id === 'dsh-bg')
-    && registeredSlots.some((s) => s.options.name === 'shell.overlay' && s.options.id === 'dsh-bg'),
+    && registeredSlots.some((s) => s.options.name === 'sidebar.footer.action' && s.options.id === 'dsh-bg-new')
+    && registeredSlots.some((s) => s.options.name === 'shell.overlay' && s.options.id === 'dsh-bg-new'),
   registeredSlots.map((s) => s.options.name).join(','))
 const footerReg = registeredSlots.find((s) => s.options.name === 'sidebar.footer.action')
 const overlayReg = registeredSlots.find((s) => s.options.name === 'shell.overlay')
@@ -396,7 +396,7 @@ const injected = typeof overlayReg?.options?.inject === 'function' ? overlayReg.
 check('A8 overlay inject() returns setBg + text', injected != null && typeof injected.setBg === 'function' && typeof injected.text === 'function')
 const footerInjected = typeof footerReg?.options?.inject === 'function' ? footerReg.options.inject() : null
 check('A8 sidebar action inject() returns text (no setBg)', footerInjected != null && typeof footerInjected.text === 'function' && footerInjected.setBg === undefined)
-check('A8 locale ns == settings.dsh-bg', localeNs === 'settings.dsh-bg', JSON.stringify(localeNs))
+check('A8 locale ns == settings.dsh-bg-new', localeNs === 'settings.dsh-bg-new', JSON.stringify(localeNs))
 const zhKeys = localeDict?.zh ? Object.keys(localeDict.zh).sort() : []
 const enKeys = localeDict?.en ? Object.keys(localeDict.en).sort() : []
 check('A8 locale zh/en dictionaries non-empty', zhKeys.length > 0 && enKeys.length > 0)
@@ -416,7 +416,7 @@ const v04Keys = ['sound', 'volume', 'uploading', 'localVideo']
 check('A8c v0.4 sound/volume/uploading/localVideo keys exist in both zh/en',
   v04Keys.every((k) => typeof localeDict?.zh?.[k] === 'string' && localeDict.zh[k] !== ''
     && typeof localeDict?.en?.[k] === 'string' && localeDict.en[k] !== ''))
-check('A8 settingsScope bound namespace == dsh-bg', scopeBound?.namespace === 'dsh-bg', JSON.stringify(scopeBound))
+check('A8 settingsScope bound namespace == dsh-bg-new', scopeBound?.namespace === 'dsh-bg-new', JSON.stringify(scopeBound))
 check('A8 scope subscriber registered', typeof scopeSubscriber === 'function')
 check('A8 mount with off snapshot creates no layer/style', layerNodes().length === 0 && styleNodes().length === 0)
 
@@ -460,7 +460,7 @@ moduleExports.applyBg('video', 'https://cdn.example.com/ocean.mp4', { fit: 'cove
 moduleExports.applyBg('video', 'C:\\videos\\local.mp4', { mediaKey: 'k-123', fit: 'cover' })
 {
   const videos = videosIn()
-  check('A9 local video → mediaKey route src', videos[0]?.getAttribute('src') === '/dsh-bg-media/k-123', String(videos[0]?.getAttribute('src')))
+  check('A9 local video → mediaKey route src', videos[0]?.getAttribute('src') === '/dsh-bg-new-media/k-123', String(videos[0]?.getAttribute('src')))
 }
 moduleExports.applyBg('image', '#not-a-url'.length ? 'https://example.com/tile.png' : '', { fit: 'tile' })
 {
@@ -473,7 +473,7 @@ moduleExports.applyBg('image', '', { mediaKey: 'k-img' })
 {
   const text = styleText()
   check('A9 image mediaKey → host media URL (value empty)', layerNodes().length === 1
-    && text.includes('background-image: url("/dsh-bg-media/k-img")'))
+    && text.includes('background-image: url("/dsh-bg-new-media/k-img")'))
 }
 moduleExports.applyBg('color', '#ffffff')
 {
@@ -483,7 +483,7 @@ moduleExports.applyBg('color', '#ffffff')
 }
 moduleExports.applyBg('off', '')
 check('A9 off removes layer + style entirely (no residue)', layerNodes().length === 0 && styleNodes().length === 0 && styleText() === '')
-check('A9 body kept untouched by pipeline', head.children.every((n) => n.getAttribute('id') !== 'dsh-bg-style') || styleNodes().length === 0)
+check('A9 body kept untouched by pipeline', head.children.every((n) => n.getAttribute('id') !== 'dsh-bg-new-style') || styleNodes().length === 0)
 
 // ---- adopt: external (tool/host) change → scope listener applies ----
 const baseCalls = setCalls.length
@@ -495,7 +495,7 @@ sectionBox.loop = true
 scopeSubscriber()
 {
   const videos = videosIn()
-  check('A10 adopt applies external video snapshot', videos.length === 1 && videos[0].getAttribute('src') === '/dsh-bg-media/k-ext')
+  check('A10 adopt applies external video snapshot', videos.length === 1 && videos[0].getAttribute('src') === '/dsh-bg-new-media/k-ext')
 }
 scopeSubscriber()
 check('A10 adopt idempotent (no double render for same doc)', layerNodes().length === 1 && videosIn().length === 1)
@@ -645,7 +645,7 @@ await Promise.resolve()
   check('A14 Enter triggers apply (2/3) and non-Enter ignored', hits === 2 && prevented === true, `hits=${hits}`)
 }
 
-// ---- v0.4: local upload → POST /dsh-bg-media/upload → mediaKey ----
+// ---- v0.4: local upload → POST /dsh-bg-new-media/upload → mediaKey ----
 {
   const cfg = { ...moduleExports.bgDefaultConfig, imageExt: [...moduleExports.bgDefaultConfig.imageExt] }
   lastFetch = null
@@ -654,7 +654,7 @@ await Promise.resolve()
   const outcome = await moduleExports.bgUploadLocalFile({ name: 'pic.png', size: 4096 }, 'image', cfg)
   check('A14 upload success returns mediaKey', outcome.ok === true && outcome.mediaKey === 'k-uploaded', JSON.stringify(outcome))
   check('A14 upload POSTs raw file to upload route', lastFetch !== null
-    && lastFetch.url === '/dsh-bg-media/upload?kind=image&ext=png'
+    && lastFetch.url === '/dsh-bg-new-media/upload?kind=image&ext=png'
     && lastFetch.init.method === 'POST'
     && lastFetch.init.body?.name === 'pic.png' && lastFetch.init.body?.size === 4096,
     JSON.stringify(lastFetch?.url))
@@ -667,15 +667,15 @@ await Promise.resolve()
   // server 400 message surfaces
   lastFetch = null
   fetchOk = false
-  fetchPayload = { ok: false, message: 'dsh-bg-media: 不支持的图片类型 .png（允许 webp）' }
+  fetchPayload = { ok: false, message: 'dsh-bg-new-media: 不支持的图片类型 .png（允许 webp）' }
   const serverBad = await moduleExports.bgUploadLocalFile({ name: 'a.png', size: 10 }, 'image', cfg)
   check('A14 server 400 message surfaced', serverBad.ok === false && typeof serverBad.message === 'string'
-    && serverBad.message.includes('dsh-bg-media'), JSON.stringify(serverBad))
+    && serverBad.message.includes('dsh-bg-new-media'), JSON.stringify(serverBad))
   lastFetch = null
   fetchOk = true
   fetchPayload = { ok: true, mediaKey: 'k-uploaded' }
   const vidOutcome = await moduleExports.bgUploadLocalFile({ name: 'clip.mp4', size: 99 }, 'video', cfg)
-  check('A14 video upload POSTs with kind=video', lastFetch !== null && lastFetch.url === '/dsh-bg-media/upload?kind=video&ext=mp4'
+  check('A14 video upload POSTs with kind=video', lastFetch !== null && lastFetch.url === '/dsh-bg-new-media/upload?kind=video&ext=mp4'
     && vidOutcome.ok === true && vidOutcome.mediaKey === 'k-uploaded', JSON.stringify({ url: lastFetch?.url, out: vidOutcome }))
 }
 
@@ -791,14 +791,14 @@ check('A12 cleanup leaves body children empty of ours', body.children.length ===
 {
   moduleExports.applyBg('gradient', 'linear-gradient(135deg, #1e2a78, #2b1055)')
   const text = styleText()
-  check('A15 single <style id=dsh-bg-style> exists', styleNodes().length === 1)
+  check('A15 single <style id=dsh-bg-new-style> exists', styleNodes().length === 1)
   check('A15 no legacy fixed body background media rules in engine CSS',
     !text.includes('no-repeat fixed'))
   // 去掉所有块注释后再计数：引擎标识常量各只出现一次（单一自管渲染引擎）；
   // 若还有第二套 layer/style 定义（如旧 style.ts 的 body 注入）会暴露出来。
   const codeNoComments = code.replace(/\/\*[\s\S]*?\*\//g, '')
-  const layerCount = codeNoComments.split('data-dsh-bg-layer').length - 1
-  const styleIdCount = codeNoComments.split('dsh-bg-style').length - 1
+  const layerCount = codeNoComments.split('data-dsh-bg-new-layer').length - 1
+  const styleIdCount = codeNoComments.split('dsh-bg-new-style').length - 1
   const styleTagCreate = (codeNoComments.match(/createElement\(["']style["']\)/g) ?? []).length
   const videoTagCreate = (codeNoComments.match(/createElement\(["']video["']\)/g) ?? []).length
   check('A15 bundle has exactly one layer attr + one bg style id + two style factories (bg engine + drawer layout) + one video factory',
@@ -828,11 +828,11 @@ check('A12 cleanup leaves body children empty of ours', body.children.length ===
   // (1) 本地图（mediaKey）+ 拖透明度：来源不能被清掉（#3）
   moduleExports.applyBg('image', 'wall.png', { mediaKey: 'keep-img' })
   check('A16 mediaKey image renders via host media route',
-    layerNodes().length === 1 && styleText().includes('background-image: url("/dsh-bg-media/keep-img")'))
+    layerNodes().length === 1 && styleText().includes('background-image: url("/dsh-bg-new-media/keep-img")'))
   const t1 = setCalls.length
   injected2.setBg('image', 'wall.png', { opacity: 0.5 })
   check('A16 opacity tweak keeps wallpaper on screen (mediaKey intact)',
-    styleText().includes('/dsh-bg-media/keep-img') && styleText().includes('opacity: 0.5'))
+    styleText().includes('/dsh-bg-new-media/keep-img') && styleText().includes('opacity: 0.5'))
   flushTimers()
   const w1 = setCalls.slice(t1)
   check('A16 option tweak persists opacity only — no mode/value/mediaKey churn',
@@ -842,7 +842,7 @@ check('A12 cleanup leaves body children empty of ours', body.children.length ===
   // (2) 切本地视频 → 远程坏链：必须清旧 mediaKey 并换源尝试（#9）
   moduleExports.applyBg('video', 'local.mp4', { mediaKey: 'old-vid' })
   check('A16 local video first (mediaKey src)',
-    videosIn()[0]?.getAttribute('src') === '/dsh-bg-media/old-vid',
+    videosIn()[0]?.getAttribute('src') === '/dsh-bg-new-media/old-vid',
     String(videosIn()[0]?.getAttribute('src')))
   const t2 = setCalls.length
   injected2.setBg('video', 'https://cdn.example.com/broken.mp4')
@@ -1020,11 +1020,11 @@ check('A12 cleanup leaves body children empty of ours', body.children.length ===
     ...panelSnap,
   }))
   const testids = panelNodes.map((n) => n['data-testid']).filter(Boolean)
-  check('A17 #3 恢复默认只有一个按钮，且挂在 tab 栏里（dsh-bg-reset）',
-    testids.filter((id) => id === 'dsh-bg-reset').length === 1 && testids.includes('dsh-bg-tabs'),
+  check('A17 #3 恢复默认只有一个按钮，且挂在 tab 栏里（dsh-bg-new-reset）',
+    testids.filter((id) => id === 'dsh-bg-new-reset').length === 1 && testids.includes('dsh-bg-new-tabs'),
     testids.join(','))
-  check('A17 面板里不再有预览块（v0.6.0 已去掉预览）', !testids.includes('dsh-bg-preview'))
-  check('A17 面板里有毛玻璃质感开关（dsh-bg-glass）', testids.includes('dsh-bg-glass'))
+  check('A17 面板里不再有预览块（v0.6.0 已去掉预览）', !testids.includes('dsh-bg-new-preview'))
+  check('A17 面板里有毛玻璃质感开关（dsh-bg-new-glass）', testids.includes('dsh-bg-new-glass'))
 }
 
 // =====================================================================
@@ -1150,18 +1150,18 @@ check('A12 cleanup leaves body children empty of ours', body.children.length ===
   check('A18 毛玻璃 backdrop 滤镜 + 目标选择器（含抽屉/弹窗/输入卡）',
     typeof moduleExports.GLASS_BACKDROP_FILTER === 'string'
       && moduleExports.GLASS_BACKDROP_FILTER.includes('blur')
-      && moduleExports.GLASS_BACKDROP_SELECTOR.includes('[data-dsh-bg-drawer]')
+      && moduleExports.GLASS_BACKDROP_SELECTOR.includes('[data-dsh-bg-new-drawer]')
       && moduleExports.GLASS_BACKDROP_SELECTOR.includes('[data-composer-card]'))
   moduleExports.applyBg('image', 'https://example.com/glass.jpg', { glass: true })
   const glassCss = styleText()
-  check('A18 glass:true → 引擎 CSS 输出 body[data-dsh-bg-glass] 与 backdrop-filter',
-    glassCss.includes('body[data-dsh-bg-glass]')
+  check('A18 glass:true → 引擎 CSS 输出 body[data-dsh-bg-new-glass] 与 backdrop-filter',
+    glassCss.includes('body[data-dsh-bg-new-glass]')
       && glassCss.includes('backdrop-filter: blur(16px) saturate(1.2)')
       && glassCss.includes('-webkit-backdrop-filter'),
-    glassCss.split('\n').filter((l) => l.includes('backdrop') || l.includes('data-dsh-bg-glass')).join(' | '))
+    glassCss.split('\n').filter((l) => l.includes('backdrop') || l.includes('data-dsh-bg-new-glass')).join(' | '))
   moduleExports.applyBg('image', 'https://example.com/plain.jpg', { glass: false })
   const plainCss = styleText()
-  check('A18 glass:false → 不输出毛玻璃 CSS', !plainCss.includes('data-dsh-bg-glass') && !plainCss.includes('backdrop-filter'))
+  check('A18 glass:false → 不输出毛玻璃 CSS', !plainCss.includes('data-dsh-bg-new-glass') && !plainCss.includes('backdrop-filter'))
 
   const v06Keys = ['wallpaper', 'close', 'glass', 'glassHint']
   check('A18 抽屉/毛玻璃新增文案键 zh/en 齐备且非空',
@@ -1181,8 +1181,8 @@ check('A12 cleanup leaves body children empty of ours', body.children.length ===
     const nodes = flatten(moduleExports.BgPanel({ setBg: () => {}, text: (k) => k, ...panelSnap }))
     const ids = nodes.map((n) => n['data-testid']).filter(Boolean)
     check('A18 面板有毛玻璃开关、无预览块、无独立窗口按钮',
-      ids.includes('dsh-bg-glass') && !ids.includes('dsh-bg-preview')
-        && !ids.includes('dsh-bg-hold-preview') && !ids.includes('dsh-bg-adjust-row'),
+      ids.includes('dsh-bg-new-glass') && !ids.includes('dsh-bg-new-preview')
+        && !ids.includes('dsh-bg-new-hold-preview') && !ids.includes('dsh-bg-new-adjust-row'),
       ids.join(','))
     const ranges = nodes.filter((n) => n.type === 'range' || (n.style && n.min !== undefined))
     check('A18 缩放滑杆（zoom 100%–300%）出现在壁纸控件里',
@@ -1202,10 +1202,10 @@ check('A12 cleanup leaves body children empty of ours', body.children.length ===
       zoom: 1.5, posX: 30, posY: 70,
     }
     const nodes = flatten(moduleExports.BgPanel({ setBg: () => {}, text: (k) => k, ...panelSnap }))
-    const box = nodes.find((n) => n['data-testid'] === 'dsh-bg-minimap-box')
+    const box = nodes.find((n) => n['data-testid'] === 'dsh-bg-new-minimap-box')
     check('A18 小图存在（图片模式）且有拖动起点 handler + ref（滚轮监听在 document 上按包含判断）',
       box !== undefined && typeof box.onPointerDown === 'function' && box.ref !== undefined)
-    const layer = flatten(box?.children).find((n) => n['data-dsh-bg-minimap-layer'] !== undefined)
+    const layer = flatten(box?.children).find((n) => n['data-dsh-bg-new-minimap-layer'] !== undefined)
     check('A18 小图与真实层同规则（zoom 1.5 → scale(1.5) 绕焦点 30%/70%）',
       layer !== undefined && String(layer.style.transform) === 'scale(1.5)'
         && String(layer.style.transformOrigin) === '30% 70%'
@@ -1214,8 +1214,8 @@ check('A12 cleanup leaves body children empty of ours', body.children.length ===
     check('A18 视频模式下小图用 canvas 镜像真实层那一帧（不再开第二路 <video>）', (() => {
       panelSnap = { ...baseSnap, mode: 'video', value: 'https://cdn.example.com/map.mp4', fit: 'cover' }
       const vNodes = flatten(moduleExports.BgPanel({ setBg: () => {}, text: (k) => k, ...panelSnap }))
-      const boxChildren = flatten(vNodes.find((n) => n['data-testid'] === 'dsh-bg-minimap-box')?.children)
-      const canvas = boxChildren.find((n) => n['data-dsh-bg-minimap-video'] !== undefined)
+      const boxChildren = flatten(vNodes.find((n) => n['data-testid'] === 'dsh-bg-new-minimap-box')?.children)
+      const canvas = boxChildren.find((n) => n['data-dsh-bg-new-minimap-video'] !== undefined)
       // canvas 分支没有 src / muted（不吃第二路媒体源）—— 远程视频因此不会再"小图空白"
       return canvas !== undefined && canvas.ref !== undefined
         && canvas.src === undefined && canvas.muted === undefined
@@ -1224,7 +1224,7 @@ check('A12 cleanup leaves body children empty of ours', body.children.length ===
     check('A18 纯色/渐变模式不渲染小图（缩放定位对它们没有意义）', (() => {
       panelSnap = { ...baseSnap, mode: 'gradient', value: 'linear-gradient(#fff, #000)' }
       const gNodes = flatten(moduleExports.BgPanel({ setBg: () => {}, text: (k) => k, ...panelSnap }))
-      return gNodes.every((n) => n['data-testid'] !== 'dsh-bg-minimap-box')
+      return gNodes.every((n) => n['data-testid'] !== 'dsh-bg-new-minimap-box')
     })())
     check('A18 小图提示文案 zh/en 齐备',
       typeof localeDict?.zh?.minimapHint === 'string' && localeDict.zh.minimapHint.includes('滚轮')
@@ -1238,7 +1238,7 @@ check('A12 cleanup leaves body children empty of ours', body.children.length ===
     const injectedGrace = typeof registeredOptions?.inject === 'function' ? registeredOptions.inject() : null
     panelSnap = { ...baseSnap, mode: 'image', value: 'https://example.com/grace.jpg', fit: 'cover', posX: 50, posY: 50 }
     const nodes = flatten(moduleExports.BgPanel({ setBg: injectedGrace.setBg, text: (k) => k, ...panelSnap }))
-    const box = nodes.find((n) => n['data-testid'] === 'dsh-bg-minimap-box')
+    const box = nodes.find((n) => n['data-testid'] === 'dsh-bg-new-minimap-box')
     const rect = { left: 0, top: 0, right: 100, bottom: 100, width: 100, height: 100 }
     const t0 = setCalls.length
     box.onPointerDown({ clientX: 50, clientY: 50, currentTarget: { getBoundingClientRect: () => rect } })
@@ -1279,27 +1279,27 @@ check('A12 cleanup leaves body children empty of ours', body.children.length ===
   {
     const actionNodes = flatten(moduleExports.BgSidebarAction({ text: (k) => k, wide: true }))
     check('A18 侧栏按钮渲染且带 testid + 切换抽屉的 onClick',
-      actionNodes.some((n) => n['data-testid'] === 'dsh-bg-sidebar-action' && typeof n.onClick === 'function'))
+      actionNodes.some((n) => n['data-testid'] === 'dsh-bg-new-sidebar-action' && typeof n.onClick === 'function'))
     // 需求 6：展开态 = 图标 + 「壁纸」；收起态只留图标（无文字子节点）。
     // 注：VM 里的 jsx stub 只回 props（丢掉元素类型），所以按 props 特征判定：
     // 图标 = 带 viewBox 的 svg props，文字 = children 为文案键的 span props。
-    const wideBtn = actionNodes.find((n) => n['data-testid'] === 'dsh-bg-sidebar-action')
+    const wideBtn = actionNodes.find((n) => n['data-testid'] === 'dsh-bg-new-sidebar-action')
     const wideChildren = Array.isArray(wideBtn?.children) ? wideBtn.children : [wideBtn?.children]
     check('A18 侧栏按钮展开态 = 图标 + 「壁纸」文字',
       wideChildren.some((c) => c?.viewBox !== undefined) && wideChildren.some((c) => c?.children === 'wallpaper'),
       JSON.stringify(wideChildren.map((c) => (c?.viewBox !== undefined ? 'icon' : c?.children))))
     const narrowNodes = flatten(moduleExports.BgSidebarAction({ text: (k) => k, wide: false }))
-    const narrowBtn = narrowNodes.find((n) => n['data-testid'] === 'dsh-bg-sidebar-action')
+    const narrowBtn = narrowNodes.find((n) => n['data-testid'] === 'dsh-bg-new-sidebar-action')
     check('A18 侧栏按钮收起态只显示图标（无文字）', narrowBtn?.children?.viewBox !== undefined,
       JSON.stringify(narrowBtn?.children?.viewBox ?? narrowBtn?.children))
 
     moduleExports.toggleDrawer()
     const drawerNodes = flatten(moduleExports.BgDrawer({ setBg: () => {}, text: (k) => k }))
     moduleExports.toggleDrawer()
-    const panel = drawerNodes.find((n) => n['data-dsh-bg-drawer'] !== undefined)
-    const closeBtn = drawerNodes.find((n) => n['data-testid'] === 'dsh-bg-drawer-close')
-    const backdrop = drawerNodes.find((n) => n['data-testid'] === 'dsh-bg-drawer-backdrop')
-    check('A18 抽屉打开时渲染面板 + 关闭按钮（data-dsh-bg-drawer / dsh-bg-drawer-close）',
+    const panel = drawerNodes.find((n) => n['data-dsh-bg-new-drawer'] !== undefined)
+    const closeBtn = drawerNodes.find((n) => n['data-testid'] === 'dsh-bg-new-drawer-close')
+    const backdrop = drawerNodes.find((n) => n['data-testid'] === 'dsh-bg-new-drawer-backdrop')
+    check('A18 抽屉打开时渲染面板 + 关闭按钮（data-dsh-bg-new-drawer / dsh-bg-new-drawer-close）',
       panel !== undefined && closeBtn !== undefined)
     check('A18 抽屉宽度 = min(630px,100vw)（需求 2：+50%）',
       panel?.style?.width === 'min(630px, 100vw)', String(panel?.style?.width))
@@ -1309,11 +1309,11 @@ check('A12 cleanup leaves body children empty of ours', body.children.length ===
     check('A18 点抽屉外区域关闭（透明遮罩 onClick → setDrawerOpen(false)，需求 9）',
       backdrop !== undefined && typeof backdrop.onClick === 'function' && backdrop.style?.background === 'transparent')
     check('A18 面板里不再重复渲染「背景」标题（需求 5）',
-      drawerNodes.filter((n) => n['data-testid'] === 'dsh-bg-title').length === 0)
+      drawerNodes.filter((n) => n['data-testid'] === 'dsh-bg-new-title').length === 0)
     // 第二轮需求 1：抽屉打开 → body 标记 + 隐藏侧栏/聊天列的布局 CSS
     moduleExports.toggleDrawer()
     const drawerCss = [...head.children, ...body.children]
-      .find((n) => n.getAttribute?.('id') === 'dsh-bg-drawer-style')?.textContent ?? ''
+      .find((n) => n.getAttribute?.('id') === 'dsh-bg-new-drawer-style')?.textContent ?? ''
     moduleExports.toggleDrawer()
     check('A18 抽屉布局样式表存在（打开时隐藏左侧栏与聊天列，第二轮需求 1）',
       drawerCss.includes('[data-shell-overlay]') && drawerCss.includes('grid-template-columns: 0px 0px 0px'),
@@ -1328,7 +1328,7 @@ check('A12 cleanup leaves body children empty of ours', body.children.length ===
     check('A18 视频播放/停止合并为一个图标按钮（第二轮需求 2）', (() => {
       panelSnap = { ...baseSnap, mode: 'video', value: 'https://cdn.example.com/v.mp4', fit: 'cover' }
       const nodes = flatten(moduleExports.BgPanel({ setBg: () => {}, text: (k) => k, ...panelSnap }))
-      const btns = nodes.filter((n) => n['data-testid'] === 'dsh-bg-video-playstop')
+      const btns = nodes.filter((n) => n['data-testid'] === 'dsh-bg-new-video-playstop')
       return btns.length === 1 && btns[0].children?.viewBox !== undefined
         && btns.every((n) => n.children !== '播放' && n.children !== '停止')
     })())
@@ -1371,8 +1371,8 @@ check('A12 cleanup leaves body children empty of ours', body.children.length ===
     // 第七轮需求 2：药丸式分段 tab + 滑动滑块（位移过渡）
     check('A18 tab 是药丸式分段控件（底槽 999px + 滑块 translateX 过渡 + 文字渐变）', (() => {
       const nodes = flatten(moduleExports.BgPanel({ setBg: () => {}, text: (k) => k, ...baseSnap }))
-      const list = nodes.find((n) => n['data-testid'] === 'dsh-bg-tablist')
-      const thumb = nodes.find((n) => n['data-testid'] === 'dsh-bg-tab-thumb')
+      const list = nodes.find((n) => n['data-testid'] === 'dsh-bg-new-tablist')
+      const thumb = nodes.find((n) => n['data-testid'] === 'dsh-bg-new-tab-thumb')
       const tabs = nodes.filter((n) => n.role === 'tab')
       return list !== undefined && String(list.style?.borderRadius) === '999px'
         && thumb !== undefined && String(thumb.style?.transform).startsWith('translateX')
@@ -1384,7 +1384,7 @@ check('A12 cleanup leaves body children empty of ours', body.children.length ===
     check('A18 滑块位置跟着当前 tab 走（mode=image → 第 4 个位置 translateX(300%)）', (() => {
       panelSnap = { ...baseSnap, mode: 'image', value: 'https://example.com/t.jpg' }
       const nodes = flatten(moduleExports.BgPanel({ setBg: () => {}, text: (k) => k, ...panelSnap }))
-      const thumb = nodes.find((n) => n['data-testid'] === 'dsh-bg-tab-thumb')
+      const thumb = nodes.find((n) => n['data-testid'] === 'dsh-bg-new-tab-thumb')
       return thumb !== undefined && thumb.style.transform === 'translateX(300%)'
     })())
     check('A18 四个来源页签的编辑行都没有来源标签（第三轮需求 1）', (() => {
@@ -1442,12 +1442,14 @@ let bgSettings
 let tool
 let hostConfig
 let mediaModule
+let stateModule
 try {
   bgConfig = await import(new URL('../src/bg-config.ts', import.meta.url).href)
   bgSettings = await import(new URL('../src/bg-settings.ts', import.meta.url).href)
   tool = await import(new URL('../src/tool.ts', import.meta.url).href)
   hostConfig = await import(new URL('../src/config.ts', import.meta.url).href)
   mediaModule = await import(new URL('../src/media.ts', import.meta.url).href)
+  stateModule = await import(new URL('../src/state.ts', import.meta.url).href)
 } catch (error) {
   hostImportsFailed = true
   console.log(`FAIL  B0 host TS import requires Node ≥22.18 type stripping  ${error?.message ?? error}`)
@@ -1495,7 +1497,7 @@ if (!hostImportsFailed) {
   const customSchemaJson = JSON.stringify(bgSettings.buildBgSectionSchema(customCfg).toJSON())
   check('B1 schema defaults follow config override', customSchemaJson.includes('"contain"') && customSchemaJson.includes('"dark"'))
   check('B1 read-only mirror field names equal runtime field names (UI reads via doc)',
-    typeof bgSettings.BG_NAMESPACE === 'string' && bgSettings.BG_NAMESPACE === 'dsh-bg')
+    typeof bgSettings.BG_NAMESPACE === 'string' && bgSettings.BG_NAMESPACE === 'dsh-bg-new')
 
   // ---- bg_apply validation (executeBgApply pure core) ----
   const imgUrlState = tool.executeBgApply({ mode: 'image', value: 'https://example.com/a.jpg' }, cfgDefaults)
@@ -1614,7 +1616,7 @@ if (!hostImportsFailed) {
       && !bgConfig.BG_CSS_SAFE.test('linear-gradient(#fff); body{display:none}'))
 
   // local fixtures in a temp dir
-  const tmp = mkdtempSync(join(tmpdir(), 'dsh-bg-verify-'))
+  const tmp = mkdtempSync(join(tmpdir(), 'dsh-bg-new-verify-'))
   try {
     const mp4 = join(tmp, 'sample.mp4')
     const png = join(tmp, 'pic.png')
@@ -1672,7 +1674,7 @@ if (!hostImportsFailed) {
   // ---- v0.4 media upload: validate / store / resolve (temp $DSH_HOME) ----
   {
     const prevHome = process.env.DSH_HOME
-    const upHome = mkdtempSync(join(tmpdir(), 'dsh-bg-media-'))
+    const upHome = mkdtempSync(join(tmpdir(), 'dsh-bg-new-media-'))
     try {
       process.env.DSH_HOME = upHome
       hostConfig?.resetBgConfigCache?.()
@@ -1717,7 +1719,7 @@ if (!hostImportsFailed) {
       check('B6 resolve traversal-ish key rejected', mediaModule.resolveMediaFilePath('../evil') === null)
 
       // legacy absolute-path mode (bg_apply file): GET falls back to state mediaKey
-      const stateDir = join(upHome, 'dsh-bg-switch')
+      const stateDir = join(upHome, 'dsh-bg-new')
       writeFileSync(join(stateDir, 'config.json'), '{}')
       writeFileSync(join(upHome, 'legacy.mp4'), Buffer.from('legacy-video-bytes'))
       writeFileSync(join(stateDir, 'state.json'), JSON.stringify({
@@ -1760,9 +1762,9 @@ if (!hostImportsFailed) {
   // ---- host config.json read: default / override / broken ----
   const prevDshHome = process.env.DSH_HOME
   const { mkdirSync } = await import('node:fs')
-  const tmpHome = mkdtempSync(join(tmpdir(), 'dsh-bg-home-'))
+  const tmpHome = mkdtempSync(join(tmpdir(), 'dsh-bg-new-home-'))
   const writeHomeConfig = (sub, content) => {
-    const dir = join(tmpHome, sub, 'dsh-bg-switch')
+    const dir = join(tmpHome, sub, 'dsh-bg-new')
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'config.json'), content)
   }
@@ -1805,6 +1807,173 @@ if (!hostImportsFailed) {
     else process.env.DSH_HOME = prevDshHome
     hostConfig?.resetBgConfigCache?.()
     rmSync(tmpHome, { recursive: true, force: true })
+  }
+
+  // ---- v0.6.0 更名兼容：数据目录 dsh-bg-new ← 老目录 dsh-bg-switch ----
+  {
+    const prevRenameHome = process.env.DSH_HOME
+    const renameHome = mkdtempSync(join(tmpdir(), 'dsh-bg-new-rename-'))
+    try {
+      process.env.DSH_HOME = renameHome
+      hostConfig.resetBgConfigCache()
+      const legacyDir = join(renameHome, 'dsh-bg-switch')
+      const newDir = join(renameHome, 'dsh-bg-new')
+      mkdirSync(legacyDir, { recursive: true })
+      check('B9 只有老目录 → 继续用老目录（改名不丢已有壁纸/媒体）',
+        stateModule.bgHomeDir() === legacyDir
+          && hostConfig.bgConfigPath() === join(legacyDir, 'config.json')
+          && mediaModule.mediaDirPath() === join(legacyDir, 'media'),
+        stateModule.bgHomeDir())
+      // v0.7.0：回退链变成 dsh-bg-new → dsh-bg（v0.6.0）→ dsh-bg-switch（最早），
+      // 两个老目录同时存在时必须用更近的那个，而不是最早的。
+      const midDir = join(renameHome, 'dsh-bg')
+      mkdirSync(midDir, { recursive: true })
+      check('B9 两个老目录同时存在 → 用更近的 dsh-bg（不是最早的 dsh-bg-switch）',
+        stateModule.bgHomeDir() === midDir
+          && hostConfig.bgConfigPath() === join(midDir, 'config.json')
+          && mediaModule.mediaDirPath() === join(midDir, 'media'),
+        stateModule.bgHomeDir())
+      mkdirSync(newDir, { recursive: true })
+      check('B9 新目录出现后 → 切到新目录',
+        stateModule.bgHomeDir() === newDir && hostConfig.bgConfigPath() === join(newDir, 'config.json'))
+      const emptyHome = join(renameHome, 'fresh')
+      mkdirSync(emptyHome, { recursive: true })
+      process.env.DSH_HOME = emptyHome
+      check('B9 全新安装（两个目录都没有）→ 用新目录名 dsh-bg-new',
+        stateModule.bgHomeDir() === join(emptyHome, 'dsh-bg-new'))
+    } finally {
+      if (prevRenameHome === undefined) delete process.env.DSH_HOME
+      else process.env.DSH_HOME = prevRenameHome
+      hostConfig?.resetBgConfigCache?.()
+      rmSync(renameHome, { recursive: true, force: true })
+    }
+  }
+
+  // ---- v0.7.0 更名兼容：settings 命名空间 dsh-bg-new ← 老命名空间 dsh-bg ----
+  //
+  // 真实现的判据是 SettingsDescriptor.user（命名空间的**原始 user 层**）：
+  // 字段出现在 user 里 = 用户覆盖过它，所以能区分"没写过"与"写成了默认值"。
+  // 假 provider 只要照这个形状提供 documentPath / register / describe 即可。
+  {
+    const prevNsHome = process.env.DSH_HOME
+    const nsHome = mkdtempSync(join(tmpdir(), 'dsh-bg-new-ns-'))
+    const docPath = join(nsHome, 'settings.yaml')
+    try {
+      process.env.DSH_HOME = nsHome
+      hostConfig.resetBgConfigCache()
+
+      const makeNsCase = (documentText, legacyUser, newUser) => {
+        writeFileSync(docPath, documentText, 'utf8')
+        const registrations = []
+        const updates = []
+        const document = {}
+        if (legacyUser !== undefined) document['dsh-bg'] = legacyUser
+        if (newUser !== undefined) document['dsh-bg-new'] = newUser
+        const provider = {
+          documentPath: docPath,
+          register(ns) {
+            if (registrations.includes(ns)) throw new Error(`settings namespace "${ns}" is already registered`)
+            registrations.push(ns)
+            return {
+              get: () => document[ns] ?? {},
+              watch: () => () => {},
+              update: (patch) => {
+                updates.push([ns, patch])
+                document[ns] = { ...document[ns], ...patch }
+                return Promise.resolve()
+              },
+              replace: (section) => { document[ns] = section; return Promise.resolve() },
+            }
+          },
+          describe: () => registrations.map((ns) => ({
+            ns,
+            ...document[ns] === undefined ? {} : { user: document[ns] },
+          })),
+        }
+        const logs = []
+        const settingsCtx = {
+          settings: provider,
+          logger: { info: (m) => logs.push(['info', m]), warn: (m) => logs.push(['warn', m]) },
+          effect: (cb) => { const d = cb(); return typeof d === 'function' ? d : () => {} },
+        }
+        const ctx = {
+          logger: settingsCtx.logger,
+          inject: (_deps, cb) => { cb(settingsCtx); return () => {} },
+          effect: () => () => {},
+        }
+        return { ctx, registrations, updates, logs }
+      }
+      const settle = () => new Promise((resolve) => setImmediate(resolve))
+
+      // (1) 老命名空间有用户值、新命名空间从没被写过 → 继承过来
+      const c1 = makeNsCase(
+        'dsh-bg:\n  mode: gradient\n',
+        { mode: 'gradient', value: 'linear-gradient(135deg,#1e2a78,#2b1055)', opacity: 0.45, posX: 33.4 },
+        undefined,
+      )
+      const dispose1 = bgSettings.installBgNamespace(c1.ctx)
+      await settle()
+      check('B10 老命名空间有值 + 新命名空间空 → 一次性继承（背景不丢）',
+        c1.registrations.join(',') === 'dsh-bg-new,dsh-bg'
+          && c1.updates.length === 1
+          && c1.updates[0][0] === 'dsh-bg-new'
+          && c1.updates[0][1].mode === 'gradient'
+          && c1.updates[0][1].opacity === 0.45
+          && c1.updates[0][1].posX === 33.4,
+        JSON.stringify(c1.updates))
+      dispose1()
+
+      // (2) 新命名空间已经被写过 → 老值绝不覆盖用户在当前版本里的改动
+      const c2 = makeNsCase(
+        'dsh-bg:\n  mode: gradient\n',
+        { mode: 'gradient', value: 'linear-gradient(135deg,#1e2a78,#2b1055)' },
+        { mode: 'color', value: '#123456' },
+      )
+      const dispose2 = bgSettings.installBgNamespace(c2.ctx)
+      await settle()
+      check('B10 新命名空间已写过 → 不继承（用户当前改动优先）',
+        c2.updates.length === 0 && c2.registrations.includes('dsh-bg'),
+        JSON.stringify(c2.updates))
+      dispose2()
+
+      // (3) settings 文档里没有老段落 → 连老命名空间都不注册（全新安装不留痕）
+      const c3 = makeNsCase('ui-theme:\n  preference: light\n', undefined, undefined)
+      const dispose3 = bgSettings.installBgNamespace(c3.ctx)
+      await settle()
+      check('B10 settings 文档里没有老段落 → 不注册老命名空间、不写继承',
+        c3.registrations.join(',') === 'dsh-bg-new' && c3.updates.length === 0,
+        c3.registrations.join(','))
+      dispose3()
+
+      // (4) 老 user 层里的未知键被过滤掉（否则整笔 update 会校验失败被拒）
+      const c4 = makeNsCase(
+        'dsh-bg:\n  mode: color\n',
+        { mode: 'color', value: '#0a0a0a', legacyOnlyField: 'x', imageExt: ['png'] },
+        undefined,
+      )
+      const dispose4 = bgSettings.installBgNamespace(c4.ctx)
+      await settle()
+      const inherited4 = c4.updates[0]?.[1] ?? {}
+      check('B10 继承只搬白名单字段（未知键 / 只读镜像字段不进 user 层）',
+        inherited4.mode === 'color' && inherited4.value === '#0a0a0a'
+          && inherited4.legacyOnlyField === undefined && inherited4.imageExt === undefined,
+        JSON.stringify(inherited4))
+      dispose4()
+
+      // (5) 老段落存在但用户层是空的（例如只写了默认值后被清空）→ 不写继承
+      const c5 = makeNsCase('dsh-bg:\n', undefined, undefined)
+      const dispose5 = bgSettings.installBgNamespace(c5.ctx)
+      await settle()
+      check('B10 老段落存在但 user 层为空 → 不写继承',
+        c5.registrations.includes('dsh-bg') && c5.updates.length === 0,
+        JSON.stringify(c5.updates))
+      dispose5()
+    } finally {
+      if (prevNsHome === undefined) delete process.env.DSH_HOME
+      else process.env.DSH_HOME = prevNsHome
+      hostConfig?.resetBgConfigCache?.()
+      rmSync(nsHome, { recursive: true, force: true })
+    }
   }
 }
 

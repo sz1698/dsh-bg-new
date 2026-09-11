@@ -1,19 +1,19 @@
 /**
- * dsh-bg-switch —— host 本地媒体路由（v0.4：上传登记 + 任意已登记媒体伺服）。
+ * dsh-bg-new —— host 本地媒体路由（v0.4：上传登记 + 任意已登记媒体伺服）。
  *
  * v0.3 起为本地背景视频提供流式伺服；v0.4 扩为通用「上传+伺服」：
- * - **POST /dsh-bg-media/upload?kind=image|video&ext=<ext>**：body = 原始文件流。
+ * - **POST /dsh-bg-new-media/upload?kind=image|video&ext=<ext>**：body = 原始文件流。
  *   按 kind 校验扩展名（image 用 config.imageExt / video 用 videoExt，含默认表）；
  *   **体积上限只对 image 生效**（config.maxImageMB 默认 10MB）—— v0.6.0 起视频
  *   不设上限（需求：背景视频大小不要设限制），limitBytes 用 MAX_SAFE_INTEGER
  *   表示"不限制"（流式落盘的超限中止因此永不触发）。通过后写入
- *   `$DSH_HOME/dsh-bg-switch/media/<uuid>.<ext>`（dshHomePath 来自
+ *   `$DSH_HOME/dsh-bg-new/media/<uuid>.<ext>`（dshHomePath 来自
  *   @deepseek-ai/dsh-home-paths）。响应 JSON `{ok:true, mediaKey:'<uuid>'}`；
  *   非法扩展 / 超限 / 坏参数 → 400 + 中文 message。
  *   上传的媒体**不写入 settings value**：客户端拿 mediaKey 调 setBg，value 留空，
  *   mediaKey 入 settings；`<img>/<video>` 的 src 按 资源解析 =
- *   mediaKey 非空 → `/dsh-bg-media/<mediaKey>`，否则 value 直接作 URL。
- * - **GET / HEAD /dsh-bg-media/<mediaKey>**：按 mediaKey 伺服**任意已登记媒体**
+ *   mediaKey 非空 → `/dsh-bg-new-media/<mediaKey>`，否则 value 直接作 URL。
+ * - **GET / HEAD /dsh-bg-new-media/<mediaKey>**：按 mediaKey 伺服**任意已登记媒体**
  *   （不再限定 mode=video / 状态匹配）：先查媒体目录里的 `<uuid>.<ext>`；未命中再
  *   兼容旧模式（状态 mode=video 且 mediaKey 匹配且 value 是本地绝对路径 → 伺服
  *   原路径文件，bg_apply file 参数的登记方式，v0.3 行为保留）。单段 bytes Range
@@ -54,19 +54,20 @@ import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { IMAGE_EXT_TO_MIME, VIDEO_EXT_TO_MIME, type BgConfig } from './bg-config.ts'
 import { currentBgConfig } from './config.ts'
 import { readBgState } from './bg-settings.ts'
+import { bgDataPath } from './state.ts'
 
-export const name = 'dsh-bg-media'
+export const name = 'dsh-bg-new-media'
 export const inject = ['webServer']
 
 /** 本插件持有的 webServer 前缀（客户端用它拼 src / 上传 URL）。 */
-export const MEDIA_PATH_PREFIX = '/dsh-bg-media'
+export const MEDIA_PATH_PREFIX = '/dsh-bg-new-media'
 
 /** 上传子路径（POST）。 */
-export const MEDIA_UPLOAD_PATH = '/dsh-bg-media/upload'
+export const MEDIA_UPLOAD_PATH = '/dsh-bg-new-media/upload'
 
-/** 媒体目录（上传文件落地处）：$DSH_HOME/dsh-bg-switch/media/。导出供冒烟/测试。 */
+/** 媒体目录（上传文件落地处）：$DSH_HOME/dsh-bg-new/media/。导出供冒烟/测试。 */
 export function mediaDirPath(): string {
-  return dshHomePath('dsh-bg-switch', 'media')
+  return bgDataPath('media')
 }
 
 /** 取文件扩展名（无点、小写）。 */
@@ -119,7 +120,7 @@ function jsonResponse(res: ServerResponse, status: number, payload: Record<strin
 /** 发 404。 */
 function notFound(res: ServerResponse): void {
   res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
-  res.end('dsh-bg-media: 未知媒体（媒体目录无该文件，且当前状态未指向本地背景）')
+  res.end('dsh-bg-new-media: 未知媒体（媒体目录无该文件，且当前状态未指向本地背景）')
 }
 
 /** 发 416（Range 不可满足）。 */
@@ -130,7 +131,7 @@ function rangeNotSatisfiable(res: ServerResponse, size: number): void {
   res.end()
 }
 
-/** 解析请求路径（/dsh-bg-media/... → pathname；上传判断需要）。 */
+/** 解析请求路径（/dsh-bg-new-media/... → pathname；上传判断需要）。 */
 function pathnameOf(req: IncomingMessage): string {
   try {
     return new URL(req.url ?? '/', 'http://x').pathname
@@ -139,7 +140,7 @@ function pathnameOf(req: IncomingMessage): string {
   }
 }
 
-/** 解析请求路径里的 mediaKey（/dsh-bg-media/<key>）。 */
+/** 解析请求路径里的 mediaKey（/dsh-bg-new-media/<key>）。 */
 function mediaKeyOf(req: IncomingMessage): string {
   try {
     const pathname = new URL(req.url ?? '/', 'http://x').pathname
@@ -164,15 +165,15 @@ export function validateUpload(
 ): { ok: true; limitBytes: number } | { ok: false; status: number; message: string } {
   const kind = kindRaw === 'image' ? 'image' : kindRaw === 'video' ? 'video' : null
   if (kind === null) {
-    return { ok: false, status: 400, message: 'dsh-bg-media: 参数 kind 需是 image 或 video' }
+    return { ok: false, status: 400, message: 'dsh-bg-new-media: 参数 kind 需是 image 或 video' }
   }
   const ext = (extRaw ?? '').trim().toLowerCase().replace(/^\.+/, '')
   if (!/^[a-z0-9]{1,12}$/.test(ext)) {
-    return { ok: false, status: 400, message: `dsh-bg-media: 缺少或非法的扩展名参数 ext（如 png / mp4），收到：${JSON.stringify(extRaw ?? '')}` }
+    return { ok: false, status: 400, message: `dsh-bg-new-media: 缺少或非法的扩展名参数 ext（如 png / mp4），收到：${JSON.stringify(extRaw ?? '')}` }
   }
   const allowed = kind === 'image' ? cfg.imageExt : cfg.videoExt
   if (!allowed.includes(ext)) {
-    return { ok: false, status: 400, message: `dsh-bg-media: 不支持的${kind === 'image' ? '图片' : '视频'}类型 .${ext}（允许 ${allowed.join(' / ')}）` }
+    return { ok: false, status: 400, message: `dsh-bg-new-media: 不支持的${kind === 'image' ? '图片' : '视频'}类型 .${ext}（允许 ${allowed.join(' / ')}）` }
   }
   // v0.6.0：**视频不设体积上限**（需求：背景视频大小不要设限制）；图片仍按
   // config.maxImageMB 校验。返回的 limitBytes 同时供流式落盘的超限中止使用，
@@ -181,7 +182,7 @@ export function validateUpload(
   const limitMB = cfg.maxImageMB
   const limitBytes = Math.round(limitMB * 1024 * 1024)
   if (size !== null && Number.isFinite(size) && size > limitBytes) {
-    return { ok: false, status: 400, message: `dsh-bg-media: 文件 ${size} 字节超过上限 ${limitMB}MB（kind=image）` }
+    return { ok: false, status: 400, message: `dsh-bg-new-media: 文件 ${size} 字节超过上限 ${limitMB}MB（kind=image）` }
   }
   return { ok: true, limitBytes }
 }
@@ -191,7 +192,7 @@ export function validateUpload(
  * 「上传成功 → mediaKey」断言；生产 HTTP 路由走流式落盘避免大文件占内存）。
  * @param ext - 已清洗扩展名。
  * @param data - 文件字节。
- * @returns mediaKey（uuid；GET /dsh-bg-media/<key> 据此回读）。
+ * @returns mediaKey（uuid；GET /dsh-bg-new-media/<key> 据此回读）。
  */
 export function storeUploadBuffer(ext: string, data: Uint8Array): string {
   const key = randomUUID()
@@ -307,7 +308,7 @@ function streamBody(req: IncomingMessage, res: ServerResponse, filePath: string,
 }
 
 /**
- * POST /dsh-bg-media/upload：边收边校验边落盘（超限即中止）。
+ * POST /dsh-bg-new-media/upload：边收边校验边落盘（超限即中止）。
  * 成功 → {ok:true, mediaKey}；失败 → 400 + 中文 message。
  */
 async function handleUpload(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -334,7 +335,7 @@ async function handleUpload(req: IncomingMessage, res: ServerResponse): Promise<
     ext = (extRaw ?? '').trim().toLowerCase().replace(/^\.+/, '')
     limitBytes = pre.limitBytes
   } catch (error) {
-    jsonResponse(res, 400, { ok: false, message: `dsh-bg-media: 请求参数解析失败（${error instanceof Error ? error.message : String(error)}）` })
+    jsonResponse(res, 400, { ok: false, message: `dsh-bg-new-media: 请求参数解析失败（${error instanceof Error ? error.message : String(error)}）` })
     req.resume()
     return
   }
@@ -343,7 +344,7 @@ async function handleUpload(req: IncomingMessage, res: ServerResponse): Promise<
   try {
     mkdirSync(dir, { recursive: true })
   } catch (error) {
-    jsonResponse(res, 500, { ok: false, message: `dsh-bg-media: 创建媒体目录失败（${error instanceof Error ? error.message : String(error)}）` })
+    jsonResponse(res, 500, { ok: false, message: `dsh-bg-new-media: 创建媒体目录失败（${error instanceof Error ? error.message : String(error)}）` })
     req.resume()
     return
   }
@@ -355,7 +356,7 @@ async function handleUpload(req: IncomingMessage, res: ServerResponse): Promise<
     if (failed) return
     failed = true
     rmSync(tmpPath, { force: true })
-    jsonResponse(res, 400, { ok: false, message: 'dsh-bg-media: 写入媒体目录失败' })
+    jsonResponse(res, 400, { ok: false, message: 'dsh-bg-new-media: 写入媒体目录失败' })
     req.resume()
   })
   req.on('error', () => {
@@ -363,7 +364,7 @@ async function handleUpload(req: IncomingMessage, res: ServerResponse): Promise<
     failed = true
     out.destroy()
     rmSync(tmpPath, { force: true })
-    jsonResponse(res, 400, { ok: false, message: 'dsh-bg-media: 读取上传流失败' })
+    jsonResponse(res, 400, { ok: false, message: 'dsh-bg-new-media: 读取上传流失败' })
   })
   let received = 0
   req.on('data', (chunk: Buffer) => {
@@ -373,7 +374,7 @@ async function handleUpload(req: IncomingMessage, res: ServerResponse): Promise<
       failed = true
       out.destroy()
       rmSync(tmpPath, { force: true })
-      jsonResponse(res, 400, { ok: false, message: `dsh-bg-media: 上传超过上限 ${Math.round(limitBytes / 1024 / 1024)}MB（kind=image）` })
+      jsonResponse(res, 400, { ok: false, message: `dsh-bg-new-media: 上传超过上限 ${Math.round(limitBytes / 1024 / 1024)}MB（kind=image）` })
       req.resume()
       return
     }
@@ -388,7 +389,7 @@ async function handleUpload(req: IncomingMessage, res: ServerResponse): Promise<
       } catch (error) {
         failed = true
         rmSync(tmpPath, { force: true })
-        jsonResponse(res, 500, { ok: false, message: `dsh-bg-media: 落盘失败（${error instanceof Error ? error.message : String(error)}）` })
+        jsonResponse(res, 500, { ok: false, message: `dsh-bg-new-media: 落盘失败（${error instanceof Error ? error.message : String(error)}）` })
         return
       }
       jsonResponse(res, 200, { ok: true, mediaKey: key })
@@ -428,6 +429,6 @@ export function apply(ctx: Context): void {
       path: MEDIA_PATH_PREFIX,
       handler: handleMedia,
     }),
-    'dsh-bg: /dsh-bg-media route (upload + serve)',
+    'dsh-bg-new: /dsh-bg-new-media route (upload + serve)',
   )
 }

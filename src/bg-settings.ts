@@ -1,5 +1,5 @@
 /**
- * dsh-bg-switch —— host 侧 settings 命名空间桥（R3 settings-first；v0.3/v0.3.1 扩 schema）。
+ * dsh-bg-new —— host 侧 settings 命名空间桥（R3 settings-first；v0.3/v0.3.1 扩 schema）。
  *
  * 契约依据（host 源码，dsh-host 只读参考树，写入注释供复核）：
  * - settings 服务注册 API：packages/settings/settings/src/index.ts
@@ -19,7 +19,7 @@
  * v0.3 schema 变化：
  * - mode 枚举扩 'video'；新增 fit / textScheme / loop（运行时字段，默认取自
  *   config 的 defaultFit/defaultTextScheme/defaultLoop）；video 本地路径带
- *   mediaKey（随机，host /dsh-bg-media/<key> 路由据此伺服文件）。
+ *   mediaKey（随机，host /dsh-bg-new-media/<key> 路由据此伺服文件）。
  * - 只读镜像字段 imageExt/videoExt/maxImageMB/maxVideoMB/defaultFit/
  *   defaultTextScheme/defaultLoop：schema 默认 = config.json 解析结果；任何写者
  *   （工具/客户端）都不写它们 → 始终等于进程启动时读到的 config。
@@ -35,7 +35,7 @@
  *   滑杆持久化；「声音」开关 sound 为纯运行时态、不进 schema —— muted 由客户端
  *   引擎按 sound 是否开启推导，见 src/client/index.ts）。
  * - 上传/登记的本地媒体不再把原文件内容写进 value：value 留空或写原路径，
- *   mediaKey 指向 host 媒体目录 /dsh-bg-media/<key>（见 src/media.ts v0.4）。
+ *   mediaKey 指向 host 媒体目录 /dsh-bg-new-media/<key>（见 src/media.ts v0.4）。
  *
  * v0.5.0 schema 变化：
  * - 新增运行时字段 zoom（1..3，step 0.05，默认 1=不缩放）：在 fit 基准尺寸上
@@ -51,9 +51,9 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { readdirSync, rmSync } from 'node:fs'
+import { readdirSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
+import { bgDataPath, readState, writeState, type BgState } from './state.ts'
 import {
   BG_FITS,
   BG_GLASS_DEFAULT,
@@ -70,10 +70,30 @@ import {
   type BgTextScheme,
 } from './bg-config.ts'
 import { loadBgConfig, type ResolvedBgConfig } from './config.ts'
-import { readState, writeState, type BgState } from './state.ts'
 
 /** settings 命名空间（host 与 client 共享的 wire 标识）。 */
-export const BG_NAMESPACE = 'dsh-bg'
+export const BG_NAMESPACE = 'dsh-bg-new'
+
+/**
+ * 改名前用过的老 settings 命名空间（从新到旧排列）。
+ *
+ * v0.7.0 把命名空间从 `dsh-bg` 改名到 `dsh-bg-new`。老机器上用户已经调好的背景
+ * 还留在老命名空间里，{@link inheritLegacyBgNamespace} 负责把它一次性继承过来，
+ * 避免升级后背景悄悄回到默认。
+ */
+export const BG_NAMESPACE_LEGACY = ['dsh-bg'] as const
+
+/**
+ * 允许从老命名空间继承过来的运行时字段（只读镜像字段由 schema 默认承载，
+ * 从来不进 user 层，所以不在名单里）。
+ *
+ * 用显式白名单而不是"把老 user 层整个塞过去"：老写者可能留下本版本 schema 不认识
+ * 的键，直接 `update()` 会因为校验失败整笔拒绝，白名单保证继承只搬得动的字段。
+ */
+const BG_INHERITABLE_FIELDS = [
+  'mode', 'value', 'fit', 'textScheme', 'loop', 'mediaKey',
+  'opacity', 'posX', 'posY', 'scale', 'zoom', 'volume', 'glass',
+] as const
 
 /** 命名空间文档允许的 mode 枚举（与工具/客户端同一套，来自 bg-config）。 */
 export { BG_MODES, BG_FITS, BG_TEXT_SCHEMES }
@@ -157,14 +177,14 @@ interface ActiveScope {
 let activeScope: ActiveScope | undefined
 
 /**
- * 清空媒体目录缓存 $DSH_HOME/dsh-bg-switch/media/ 下已登记的上传/登记文件
+ * 清空媒体目录缓存 $DSH_HOME/dsh-bg-new/media/ 下已登记的上传/登记文件
  * （v0.4.2，#7「恢复默认清除背景缓存」）。恢复默认（mode=off）后所有 mediaKey
  * 都已失效，这些残留上传文件就是"残留壁纸/视频缓存"；目录缺失/不可读返回 0，
  * 单个文件删除失败不中断其余清理。
  * @returns 成功删除的文件数。
  */
 export function pruneMediaCache(): number {
-  const dir = dshHomePath('dsh-bg-switch', 'media')
+  const dir = bgDataPath('media')
   try {
     const names = readdirSync(dir)
     let removed = 0
@@ -183,7 +203,119 @@ export function pruneMediaCache(): number {
 }
 
 /**
- * 在 ctx 上安装 'dsh-bg' 命名空间注册（随 settings 服务生命周期挂/摘）。
+ * 本模块只用到 settings scope 的一个方法：把补丁 merge 进 user 层。
+ *
+ * 刻意用**结构类型**而不是 import settings 包的 `SettingsScope<T>`：那需要把
+ * `@deepseek-ai/dsh-settings` 加进依赖，而它只是宿主提供的能力 —— 本包不该为了
+ * 一个类型注解去声明一个并不 import 的包。
+ */
+interface BgScopeUpdateOnly {
+  update(patch: object): Promise<void>
+}
+
+/**
+ * 把老命名空间（v0.7.0 之前叫 `dsh-bg`）的用户层**一次性继承**进新命名空间。
+ *
+ * 依据（host 源码，dsh-host 只读参考树）：
+ * - `SettingsDescriptor.user` 是命名空间的**原始 user 层**
+ *   （`packages/settings/settings/src/index.ts:93-97`）：某个字段出现在 user 里，
+ *   恰好等价于"用户覆盖过它" —— 所以能区分"用户从没写过"与"用户写成了默认值"。
+ *   想拿 resolved 值再跟默认值比对是做不到这一点的。
+ * - 命名空间只有**先注册**才会出现在 `describe()` 里，所以老命名空间要用同一份
+ *   schema 注册一次（老段落是按老 schema 写的，能通过校验）。
+ *
+ * 只有新命名空间的 user 层为空时才继承 —— 用户在这个版本里改过的值永远不会被
+ * 老值覆盖。继承完成后**有意保留老注册**：它兼作回退读取面，而且老段落留在
+ * settings 文档里不删，用户想降级回 0.6.0 时原样可用。
+ *
+ * 全新安装不该白白多出一个命名空间，所以先用 {@link settingsDocumentHasSection}
+ * 探测 settings 文档里到底有没有老段落；只有确实有才注册。
+ *
+ * 整个过程是**尽力而为**：任何一步失败都只记日志，绝不能让激活失败。
+ *
+ * @param settingsCtx - 已拿到 settings 服务的 ctx。
+ * @param config - 已解析配置（老 schema 与当前 schema 用同一份默认）。
+ * @param scope - 新命名空间的写入口（继承目标）。
+ */
+function inheritLegacyBgNamespace(
+  settingsCtx: Context,
+  config: ResolvedBgConfig['config'],
+  scope: BgScopeUpdateOnly,
+): void {
+  for (const legacyNs of BG_NAMESPACE_LEGACY) {
+    try {
+      if (!settingsDocumentHasSection(readSettingsDocumentPath(settingsCtx), legacyNs)) continue
+      settingsCtx.settings.register(legacyNs, buildBgSectionSchema(config))
+      const described = settingsCtx.settings.describe()
+      // 新命名空间已经被写过 → 不继承（用户在本版本里的改动优先）
+      if (hasUserFields(described.find(row => row.ns === BG_NAMESPACE)?.user)) continue
+      const legacyUser = described.find(row => row.ns === legacyNs)?.user
+      const patch = pickInheritableFields(legacyUser)
+      if (patch === undefined) continue
+      void scope.update(patch).then(
+        () => settingsCtx.logger.info(
+          `dsh-bg-new: inherited settings from legacy namespace "${legacyNs}"`,
+        ),
+        (error: unknown) => settingsCtx.logger.warn(
+          `dsh-bg-new: could not inherit settings from "${legacyNs}": ${String(error)}`,
+        ),
+      )
+    } catch (error) {
+      settingsCtx.logger.warn(`dsh-bg-new: legacy namespace "${legacyNs}" skipped: ${String(error)}`)
+    }
+  }
+}
+
+/** 读 provider 的 settings 文档路径（非文件型 provider 返回 undefined）。 */
+function readSettingsDocumentPath(settingsCtx: Context): string | undefined {
+  try {
+    const path = (settingsCtx.settings as { documentPath?: unknown }).documentPath
+    return typeof path === 'string' ? path : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * settings 文档里是否已经有某个顶层命名空间段落。
+ *
+ * settings 文档是"顶层键 = 命名空间"的扁平结构，所以看行首就够了，不需要解析 YAML。
+ * **读不动时返回 true**（按"可能有"处理）：宁可多注册一个空命名空间，也不能因为
+ * 一次读失败就把用户调好的背景丢掉。非文件型 provider 没有文档路径，返回 false。
+ */
+function settingsDocumentHasSection(documentPath: string | undefined, ns: string): boolean {
+  if (documentPath === undefined) return false
+  try {
+    return readFileSync(documentPath, 'utf8')
+      .split(/\r?\n/)
+      .some(line => line.startsWith(`${ns}:`))
+  } catch {
+    return true
+  }
+}
+
+/** 该 user 层是否真的写了东西（`{}` / undefined / 非对象都算没写）。 */
+function hasUserFields(user: unknown): boolean {
+  return typeof user === 'object' && user !== null && !Array.isArray(user)
+    && Object.keys(user).length > 0
+}
+
+/**
+ * 从老 user 层里挑出可继承字段（见 {@link BG_INHERITABLE_FIELDS}）。
+ * 一个可用字段都没有时返回 undefined，表示不需要写这一笔。
+ */
+function pickInheritableFields(user: unknown): Partial<BgSectionDoc> | undefined {
+  if (typeof user !== 'object' || user === null || Array.isArray(user)) return undefined
+  const source = user as Record<string, unknown>
+  const patch: Record<string, unknown> = {}
+  for (const field of BG_INHERITABLE_FIELDS) {
+    if (source[field] !== undefined) patch[field] = source[field]
+  }
+  return Object.keys(patch).length > 0 ? patch as Partial<BgSectionDoc> : undefined
+}
+
+/**
+ * 在 ctx 上安装 'dsh-bg-new' 命名空间注册（随 settings 服务生命周期挂/摘）。
  * 启动时读取并校验 config.json（src/config.ts，进程内缓存），非法字段回退
  * 默认并在此记日志。
  * v0.4.2：命名空间**提交为 mode=off（恢复默认）**时清理媒体目录缓存（#7）——
@@ -209,7 +341,9 @@ export function installBgNamespace(ctx: Context): () => void {
     settingsCtx.effect(() => () => {
       if (activeScope === scope) activeScope = undefined
       unwatch()
-    }, `dsh-bg: ${BG_NAMESPACE} scope detached`)
+    }, `dsh-bg-new: ${BG_NAMESPACE} scope detached`)
+    // 改名兼容：把老命名空间的用户层一次性继承过来（尽力而为，失败只记日志）
+    inheritLegacyBgNamespace(settingsCtx, resolved.config, scope)
   })
   return () => {
     activeScope = undefined

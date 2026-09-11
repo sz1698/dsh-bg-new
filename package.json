@@ -1,17 +1,17 @@
 {
-  "name": "dsh-bg-switch",
-  "version": "0.6.0",
+  "name": "dsh-bg-new",
+  "version": "0.7.0",
   "description": "DSH 插件：给 DeepSeek Harness 换网页界面背景（系统预设/纯色/渐变/图片/视频）。侧栏「壁纸」按钮弹出右侧抽屉，滚轮+拖动的小图同时管缩放与定位，支持毛玻璃质感、本地媒体伺服、客户端即时生效并持久化到 settings；模型也可用 bg_apply 工具直接换。",
   "type": "module",
   "license": "MIT",
   "author": "sz1698",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sz1698/dsh-bg-switch.git"
+    "url": "git+https://github.com/sz1698/dsh-bg-new.git"
   },
-  "homepage": "https://github.com/sz1698/dsh-bg-switch#readme",
+  "homepage": "https://github.com/sz1698/dsh-bg-new#readme",
   "bugs": {
-    "url": "https://github.com/sz1698/dsh-bg-switch/issues"
+    "url": "https://github.com/sz1698/dsh-bg-new/issues"
   },
   "keywords": [
     "dsh-plugin",

@@ -1,25 +1,25 @@
 /**
- * dsh-bg-switch —— browser client half（v0.6.0：右侧抽屉交互 + 侧栏入口 +
+ * dsh-bg-new —— browser client half（v0.6.0：右侧抽屉交互 + 侧栏入口 +
  * 毛玻璃质感 + 滑动降透明；预览画布与独立设置窗口已移除）。
  *
  * v0.6.0（本轮）：
  * - **交互迁移**：背景不再进设置页（settings.section 注册移除），改为两个 slot：
  *   `sidebar.footer.action`（设置按钮上方的「更换壁纸」按钮）切换右侧抽屉，
  *   `shell.overlay`（聊天界面右侧滑出的抽屉）承载原背景设置内容（BgPanel）。
- * - **去掉预览**：预览画布（dsh-bg-canvas）与「按住预览/预览模式」降透明 UI 移除。
+ * - **去掉预览**：预览画布（dsh-bg-new-canvas）与「按住预览/预览模式」降透明 UI 移除。
  * - **滑动降透明**：拖动定位/透明度/缩放滑杆时（pointerdown→pointerup），抽屉
  *   自身 opacity 过渡到 0.22，松开恢复 —— 目标就是我们自己的抽屉，不再动宿主
  *   设置弹窗 DOM（旧的 resolveDimTarget/applyUiDim/previewMode 机制删除）。
- * - **去掉独立窗口**：/dsh-bg-panel 路由（src/panel.ts）与「在独立窗口打开」按钮
+ * - **去掉独立窗口**：/dsh-bg-new-panel 路由（src/panel.ts）与「在独立窗口打开」按钮
  *   删除。
  * - **毛玻璃质感**：新增持久化字段 `glass`（bool，默认 false）；开启后内容面 token
  *   压到 ~0.55 透明，并对抽屉/弹窗/输入卡做 backdrop-filter 模糊（bg-palette 的
  *   glassSurfaceTokensForTextScheme + GLASS_BACKDROP_*，buildStyleText 输出
- *   `body[data-dsh-bg-glass]` 作用域）。
+ *   `body[data-dsh-bg-new-glass]` 作用域）。
  *
  * 历史（v0.5.0 A–E）：
  * - **A 预览画布**：设置页里的 mini 界面缩略图（v0.4.4 #5）**换成纯预览画布**
- *   （`data-testid=dsh-bg-canvas`，16:9、高度 380–440px、宽度不超容器）——
+ *   （`data-testid=dsh-bg-new-canvas`，16:9、高度 380–440px、宽度不超容器）——
  *   画布里**只渲染当前背景本身**（color/gradient/image/video），不再有任何侧栏/
  *   聊天/气泡等应用 UI（用户要的是"看背景效果"，不是"看界面缩略图"）。渲染与
  *   真实全屏层**同源同参**：两边都调 `bgMediaRender()`（fit 五档 / posX / posY /
@@ -42,9 +42,9 @@
  *   另有 sticky「预览模式」开关保持降透明，并在 `<body>` 上挂一条**不在弹窗内**
  *   的提示条（弹窗整体 10% 时它仍可读）：「预览模式：松开/关闭以恢复界面」+
  *   「恢复界面」按钮。
- * - **D 独立设置窗口**：host 新增 `/dsh-bg-panel` 自包含设置页（src/panel.ts，
+ * - **D 独立设置窗口**：host 新增 `/dsh-bg-new-panel` 自包含设置页（src/panel.ts，
  *   GET 页面 / GET state / POST set）+ 主设置页「在独立窗口打开」按钮
- *   （window.open(location.origin + '/dsh-bg-panel', '_blank', 'width=520,height=760')，
+ *   （window.open(location.origin + '/dsh-bg-new-panel', '_blank', 'width=520,height=760')，
  *   桌面端由主程序交给系统浏览器 = 真正独立窗口）。
  * - **E 顶部区域**：查实应用内顶部（侧栏品牌行 / 会话标题行 / 列头行）**没有**
  *   标题栏专属 token，它们本身透明、垫面就是 `--dsw-alias-bg-base` 与
@@ -117,9 +117,9 @@
  *   src/index.ts 不再挂载），视觉只归本引擎 —— 修图片"重叠"（旧固定 center/cover
  *   与引擎同时生效各画一层）。
  * - 本地媒体统一上传+伺服：file 不再内联 data URI 进 settings（巨型 base64 每次
- *   持久化整文件重写是拖慢定位滑杆的根因）—— fetch POST /dsh-bg-media/upload 拿
+ *   持久化整文件重写是拖慢定位滑杆的根因）—— fetch POST /dsh-bg-new-media/upload 拿
  *   mediaKey，setBg(mode,'',{mediaKey})；资源解析 bgResourceUrl = mediaKey 非空 →
- *   /dsh-bg-media/<key>，否则 value 直接当 URL。
+ *   /dsh-bg-new-media/<key>，否则 value 直接当 URL。
  * - 滑杆 onChange 只本地乐观 apply（一次）；持久化 ~300ms 防抖、单字段单次 set；
  *   adopt 只以 settings 镜像为权威 + applyKey 去重，pending 字段保持本地值直到镜像
  *   追上（不倒退不振荡）。
@@ -131,10 +131,10 @@
  * - 服务协作：ctx.slots（设置页注册）、ctx.settingsScope（settings 镜像读写）、
  *   ctx.locale（双语文案）。type-only 声明保持类型、值零导入。
  * - 渲染引擎（规格 2/7）：
- *   · 自管 DOM：document.body 末尾一个 <div data-dsh-bg-layer>（fixed/inset:0/
+ *   · 自管 DOM：document.body 末尾一个 <div data-dsh-bg-new-layer>（fixed/inset:0/
  *     z-index:-1/pointer-events:none），其下承载 color/gradient/image 的 CSS
  *     background 或 <video> 子元素；全部 CSS 集中写进插件自管的
- *     <style id="dsh-bg-style">（随生命周期挂/摘，避免逐条 body.style）。
+ *     <style id="dsh-bg-new-style">（随生命周期挂/摘，避免逐条 body.style）。
  *   · 「全屏透出」：查实结论（dsh-host 只读树，见 src/client/bg-palette.ts 头注）
  *     —— AppFrame.module.css .frame 吃 --dsw-alias-bg-base、.sidebarCol 吃
  *     --dsw-specific-sidebar-fill；web/src/base.css body 背景 = bg-base 变量
@@ -148,17 +148,17 @@
  *     background-position / object-position 焦点（posX/posY 百分比，
  *     见 bg-palette.focusPositionCss 的公式注释）；gradient/color 不支持。
  *   · 卸载：ctx.effect 清理时 remove style + layer → 外观完整还原。
- * - 持久化：settings 命名空间 'dsh-bg'（host 半注册并落盘）。UI/工具写入的
+ * - 持久化：settings 命名空间 'dsh-bg-new'（host 半注册并落盘）。UI/工具写入的
  *   字段 = mode/value/fit/textScheme/loop/mediaKey/opacity/posX/posY；imageExt
  *   等只读镜像字段由 host schema 默认携带，UI 从这里读限制与默认（无 scope 时
  *   用内置默认）。
  * - 视频（规格 3/6）：mode video 时 layer 内建 <video autoplay muted loop
- *   playsinline>；本地视频 src=/dsh-bg-media/<mediaKey>（host Range 伺服），
+ *   playsinline>；本地视频 src=/dsh-bg-new-media/<mediaKey>（host Range 伺服），
  *   远端用 http(s) URL。面板视频控制（播放/暂停/停止/倍速/循环）经模块级
  *   bgVideo* 函数作用到同一 <video>（运行时态；loop 可选持久化）。
  * - 视频错误可见化（v0.3.1 规格 A）：<video> 的 error/stalled/suspend 与
  *   play() 拒绝不再静默 —— 可读信息写进 snapshot.status.error（字典 errVideo*
- *   键，面板红色错误行展示，data-testid=dsh-bg-status-error）；playing/canplay
+ *   键，面板红色错误行展示，data-testid=dsh-bg-new-status-error）；playing/canplay
  *   清 error（自动播放被拒的提示保留到真正开始播放）。applyBgState/setBg 的
  *   即时应用包 try/catch：异常 → status.error=errApply（不再吞掉）。
  */
@@ -464,9 +464,9 @@ export function bgRuntimeStatus(): { error: string } {
 
 // ---- 自管 DOM（style + layer + video） ----
 
-const STYLE_ID = 'dsh-bg-style'
+const STYLE_ID = 'dsh-bg-new-style'
 const LAYER_TAG = 'div'
-const LAYER_ATTR = 'data-dsh-bg-layer'
+const LAYER_ATTR = 'data-dsh-bg-new-layer'
 let styleEl: HTMLStyleElement | null = null
 let layerEl: HTMLElement | null = null
 let videoEl: HTMLVideoElement | null = null
@@ -503,12 +503,12 @@ function removeLayer(): void {
   }
 }
 
-/** 按 glass 状态挂/摘 body 上的 data-dsh-bg-glass（毛玻璃 CSS 的作用域标记）。 */
+/** 按 glass 状态挂/摘 body 上的 data-dsh-bg-new-glass（毛玻璃 CSS 的作用域标记）。 */
 function syncGlassAttribute(on: boolean): void {
   if (typeof document === 'undefined') return
   try {
-    if (on) document.body.setAttribute('data-dsh-bg-glass', '')
-    else document.body.removeAttribute('data-dsh-bg-glass')
+    if (on) document.body.setAttribute('data-dsh-bg-new-glass', '')
+    else document.body.removeAttribute('data-dsh-bg-new-glass')
   } catch {
     // 受限/异常 DOM：忽略（不影响背景渲染本身）
   }
@@ -580,7 +580,7 @@ function syncThemeColorMeta(color: string | null): void {
  */
 function buildStyleText(s: BgSnapshot): string {
   const lines: string[] = []
-  lines.push('/* dsh-bg-switch v0.4.4 */')
+  lines.push('/* dsh-bg-new v0.4.4 */')
   // 1) 全屏透出 + 表面/文字 token（!important 盖过主题层与 body 变量）
   const tokenLines: string[] = []
   if (s.resolvedText !== null) {
@@ -612,7 +612,7 @@ function buildStyleText(s: BgSnapshot): string {
   }
   // 1d) v0.6.0：毛玻璃质感 —— 内容面 token 压透明 + 指定浮层 backdrop-filter。
   //     玻璃只在 glass 开启且存在文字方案（背景生效）时输出；body 上的
-  //     data-dsh-bg-glass 属性由 applyBgState 按 glass 状态挂/摘。
+  //     data-dsh-bg-new-glass 属性由 applyBgState 按 glass 状态挂/摘。
   if (s.glass === true && s.resolvedText !== null) {
     const glassTokens = glassSurfaceTokensForTextScheme(s.resolvedText)
     const glassLines: string[] = []
@@ -620,11 +620,11 @@ function buildStyleText(s: BgSnapshot): string {
       glassLines.push(`  ${name}: ${value} !important;`)
     }
     if (glassLines.length > 0) {
-      lines.push('body[data-dsh-bg-glass] {')
+      lines.push('body[data-dsh-bg-new-glass] {')
       lines.push(...glassLines)
       lines.push('}')
     }
-    lines.push(`body[data-dsh-bg-glass] :where(${GLASS_BACKDROP_SELECTOR}) {`)
+    lines.push(`body[data-dsh-bg-new-glass] :where(${GLASS_BACKDROP_SELECTOR}) {`)
     lines.push(`  backdrop-filter: ${GLASS_BACKDROP_FILTER};`)
     lines.push(`  -webkit-backdrop-filter: ${GLASS_BACKDROP_FILTER};`)
     lines.push('}')
@@ -710,19 +710,19 @@ function buildStyleText(s: BgSnapshot): string {
 }
 
 /**
- * 媒体资源统一解析（v0.4）：mediaKey 非空 → host 伺服 URL /dsh-bg-media/<key>
+ * 媒体资源统一解析（v0.4）：mediaKey 非空 → host 伺服 URL /dsh-bg-new-media/<key>
  * （上传/登记的本地媒体，value 为空）；否则 value 直接当 URL（http/https/data:）。
  * 返回 null 表示没有可渲染源。
  */
 function bgMediaSrc(s: BgSnapshot): string | null {
-  if (s.mediaKey !== '') return `/dsh-bg-media/${encodeURIComponent(s.mediaKey)}`
+  if (s.mediaKey !== '') return `/dsh-bg-new-media/${encodeURIComponent(s.mediaKey)}`
   if (s.value !== '') return s.value
   return null
 }
 
 /** 计算 video 的 <video src>；返回 null 表示无法解析（仅 http(s) 与 mediaKey）。 */
 function videoSrcOf(s: BgSnapshot): string | null {
-  if (s.mediaKey !== '') return `/dsh-bg-media/${encodeURIComponent(s.mediaKey)}`
+  if (s.mediaKey !== '') return `/dsh-bg-new-media/${encodeURIComponent(s.mediaKey)}`
   if (/^https?:\/\//i.test(s.value)) return s.value
   return null
 }
@@ -829,7 +829,7 @@ function buildVideo(s: BgSnapshot): HTMLVideoElement | null {
   const created = videoEl === null || !videoEl.isConnected
   if (created) {
     videoEl = document.createElement('video')
-    videoEl.setAttribute('data-dsh-bg-video', '')
+    videoEl.setAttribute('data-dsh-bg-new-video', '')
     // v0.4：新元素初始 muted=true —— 保证无手势自动播放；要声音须用户点
     // 「声音」开关（=手势）→ muted=false + resume play()（见 bgVideoSetSound）
     videoEl.muted = true
@@ -956,7 +956,7 @@ export function applyBgState(doc: Partial<BgSnapshot> & { mode: string }): void 
       notify()
       return
     }
-    // v0.6.0：毛玻璃作用域标记（body[data-dsh-bg-glass]）随 glass 状态挂/摘
+    // v0.6.0：毛玻璃作用域标记（body[data-dsh-bg-new-glass]）随 glass 状态挂/摘
     syncGlassAttribute(snapshot.glass === true)
     // video 子元素在写 style 前建好（style 里引用 #layer video）
     if (snapshot.mode === 'video') {
@@ -1221,7 +1221,7 @@ export interface BgUploadResult {
 
 /**
  * 本地媒体「上传 + 伺服」（v0.4）：不做 data URI 内联 —— 客户端先按 config 镜像
- * 预校验扩展名/大小，再 fetch POST /dsh-bg-media/upload?kind=…&ext=…（同源相对
+ * 预校验扩展名/大小，再 fetch POST /dsh-bg-new-media/upload?kind=…&ext=…（同源相对
  * 路径；body = 原始文件流），成功返回 {ok, mediaKey} 供 setBg(mode,'',{mediaKey})。
  * 服务端仍会按 config 权威复验（非法扩展 / 超限 → 400 + 中文消息）。
  */
@@ -1243,14 +1243,14 @@ export async function bgUploadLocalFile(
       return { ok: false, errorKey: 'errFileTooBig', detail: `${limitMB}MB` }
     }
   }
-  const url = `/dsh-bg-media/upload?kind=${encodeURIComponent(kind)}&ext=${encodeURIComponent(ext)}`
+  const url = `/dsh-bg-new-media/upload?kind=${encodeURIComponent(kind)}&ext=${encodeURIComponent(ext)}`
   let res: { ok: boolean; json(): Promise<unknown> }
   try {
     const fetcher = (globalThis as { fetch?: typeof fetch }).fetch
     if (typeof fetcher !== 'function') throw new Error('fetch unavailable')
     res = await fetcher(url, { method: 'POST', body: file as unknown as BodyInit })
   } catch {
-    return { ok: false, message: 'dsh-bg-media: 上传失败（无法连接媒体服务）' }
+    return { ok: false, message: 'dsh-bg-new-media: 上传失败（无法连接媒体服务）' }
   }
   let payload: { ok?: boolean; mediaKey?: string; message?: string } = {}
   try {
@@ -1264,7 +1264,7 @@ export async function bgUploadLocalFile(
   }
   return { ok: false, message: typeof payload.message === 'string' && payload.message !== ''
     ? payload.message
-    : 'dsh-bg-media: 上传失败（服务端拒绝）' }
+    : 'dsh-bg-new-media: 上传失败（服务端拒绝）' }
 }
 
 // ---- 插件入口 ----
@@ -1274,13 +1274,13 @@ export const inject = ['slots', 'settingsScope', 'locale']
 export function apply(ctx: CtxLike): void {
   let scope: SettingsScopeLike | undefined
   try {
-    scope = ctx.settingsScope?.bind({ namespace: 'dsh-bg' })
+    scope = ctx.settingsScope?.bind({ namespace: 'dsh-bg-new' })
   } catch {
     scope = undefined
   }
   // v0.4.1：把模块级单一防抖 flush 接到本 ctx 的实现（需要 scope / 镜像读写）
   runFlushImpl = runFlushNow
-  const t = ctx.locale ? ctx.locale.bind('settings.dsh-bg') : undefined
+  const t = ctx.locale ? ctx.locale.bind('settings.dsh-bg-new') : undefined
   const text = (key: string): string => (t ? t(key) : key)
 
   /** 从 scope 快照取出 section（兼容两种形状：平铺字段 / {value:{...}}）。 */
@@ -1530,7 +1530,7 @@ export function apply(ctx: CtxLike): void {
   const zhPresetDict = Object.fromEntries(Object.entries(PRESET_LABELS_ZH).map(([k, v]) => ['preset.' + k, v]))
   const enPresetDict = Object.fromEntries(Object.entries(PRESET_LABELS_EN).map(([k, v]) => ['preset.' + k, v]))
 
-  ctx.locale?.register('settings.dsh-bg', {
+  ctx.locale?.register('settings.dsh-bg-new', {
     zh: {
       nav: '壁纸', title: '壁纸', presets: '系统', custom: '自定义',
       color: '纯色', gradient: '渐变', image: '图片', video: '视频',
@@ -1652,7 +1652,7 @@ export function apply(ctx: CtxLike): void {
   // 2) shell.overlay —— 聊天界面右侧弹出的抽屉（承载原背景设置内容）。
   ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
     name: 'sidebar.footer.action',
-    id: 'dsh-bg',
+    id: 'dsh-bg-new',
     order: 0,
     label: () => text('wallpaper'),
     inject: () => ({ text }),
@@ -1660,7 +1660,7 @@ export function apply(ctx: CtxLike): void {
 
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({
     name: 'shell.overlay',
-    id: 'dsh-bg',
+    id: 'dsh-bg-new',
     order: 0,
     label: () => text('wallpaper'),
     inject: () => ({ setBg, text }),
@@ -1685,7 +1685,7 @@ export function apply(ctx: CtxLike): void {
   })
 
   // v0.6.0（需求 11）：抽屉打开期间"聊天让位 + 保留电梯"的全局样式（独立于背景
-  // 引擎的 dsh-bg-style，没有背景时也生效）。卸载即摘掉样式与 body 标记。
+  // 引擎的 dsh-bg-new-style，没有背景时也生效）。卸载即摘掉样式与 body 标记。
   ctx.effect(() => installDrawerLayoutStyle())
 }
 
@@ -1996,7 +1996,7 @@ export function BgPanel(props: BgPanelProps): unknown {
   }
 
   /**
-   * 本地文件上传（v0.4：image/video 统一走 POST /dsh-bg-media/upload → mediaKey；
+   * 本地文件上传（v0.4：image/video 统一走 POST /dsh-bg-new-media/upload → mediaKey；
    * v0.4.1：value 记**原文件名**供展示/重启后回显 —— 引擎渲染仍以 mediaKey 优先，
    * value 只是可读来源标识（bg_apply file 登记的本地文件 value 则保留完整路径）。
    * 不再内联 data URI）。上传中按钮 disabled + 文案。
@@ -2055,7 +2055,7 @@ export function BgPanel(props: BgPanelProps): unknown {
     jsx('button', {
       key: 'pick',
       type: 'button',
-      'data-testid': kind === 'image' ? 'dsh-bg-image-file' : 'dsh-bg-video-file',
+      'data-testid': kind === 'image' ? 'dsh-bg-new-image-file' : 'dsh-bg-new-video-file',
       'aria-label': text('chooseFile'),
       title: text('chooseFile'),
       disabled: uploading !== '',
@@ -2168,7 +2168,7 @@ export function BgPanel(props: BgPanelProps): unknown {
   const seekReady = durSec > 0
   const progressRow = videoTabActive
     ? jsx('div', {
-        'data-testid': 'dsh-bg-video-progress',
+        'data-testid': 'dsh-bg-new-video-progress',
         // 不要 width:100% —— 与 52px 左缩进叠加会超出面板右缘（#2）。
         style: { display: 'flex', gap: '8px', alignItems: 'center', margin: '4px 0 2px 52px' },
         children: [
@@ -2190,7 +2190,7 @@ export function BgPanel(props: BgPanelProps): unknown {
 
   const videoControlRow = videoTabActive
     ? jsx('div', {
-        'data-testid': 'dsh-bg-video-controls',
+        'data-testid': 'dsh-bg-new-video-controls',
         style: { display: 'flex', gap: '8px', alignItems: 'center', margin: '8px 0 6px 52px', flexWrap: 'wrap' },
         children: [
           // 第二轮需求 2：播放/停止合并成**一个图标按钮** —— 暂停中显示 ▶（播放），
@@ -2198,7 +2198,7 @@ export function BgPanel(props: BgPanelProps): unknown {
           jsx('button', {
             type: 'button',
             key: 'playstop',
-            'data-testid': 'dsh-bg-video-playstop',
+            'data-testid': 'dsh-bg-new-video-playstop',
             'aria-label': snap.video.paused ? text('play') : text('stop'),
             title: snap.video.paused ? text('play') : text('stop'),
             onClick: () => { if (snap.video.paused) bgVideoToggle(); else bgVideoStop() },
@@ -2239,7 +2239,7 @@ export function BgPanel(props: BgPanelProps): unknown {
           ]}),
           // v0.4：声音开关（运行时态：点开 = 用户手势 → muted=false + resume play）
           jsx('label', {
-            'data-testid': 'dsh-bg-video-sound',
+            'data-testid': 'dsh-bg-new-video-sound',
             style: { fontSize: '0.85em', display: 'flex', gap: '4px', alignItems: 'center' },
             children: [
               jsx('input', {
@@ -2390,7 +2390,7 @@ export function BgPanel(props: BgPanelProps): unknown {
    * 滚轮缩放（第五轮需求 1 的修复）：**监听挂在 document 上、事件时再判断目标是否
    * 落在小图内**。
    *
-   * 之前把 wheel 监听装在 `[data-testid=dsh-bg-minimap-box]` 的 ref 上、effect 依赖
+   * 之前把 wheel 监听装在 `[data-testid=dsh-bg-new-minimap-box]` 的 ref 上、effect 依赖
    * 只有 `[setBg]` —— 打开抽屉时如果当前不是图片/视频（小图还没渲染），effect 那次
    * 拿到的是 null，之后切到图片/视频页签小图挂出来了，effect 却不会再跑，于是滚轮
    * 完全没反应。改成 document 级 + 包含判断后，监听只装一次，小图何时出现都生效。
@@ -2510,13 +2510,13 @@ export function BgPanel(props: BgPanelProps): unknown {
   })
   const minimapBlock = mapEnabled
     ? jsx('div', {
-        'data-testid': 'dsh-bg-minimap',
+        'data-testid': 'dsh-bg-new-minimap',
         style: { margin: '2px 0 8px' },
         children: [
           jsx('div', {
             ref: mapRef,
-            'data-testid': 'dsh-bg-minimap-box',
-            'data-dsh-bg-map-outside': mapOutside ? '' : undefined,
+            'data-testid': 'dsh-bg-new-minimap-box',
+            'data-dsh-bg-new-map-outside': mapOutside ? '' : undefined,
             // 拖动/移动/松开都走 document 监听（见 mapPointerDown）：拖出小图后
             // 2 秒宽限期内仍能继续定位，所以元素上只留 pointerdown 起点。
             onPointerDown: mapPointerDown,
@@ -2534,12 +2534,12 @@ export function BgPanel(props: BgPanelProps): unknown {
               touchAction: 'none',
               userSelect: 'none',
               // 需求 5：越界期间边框明暗闪动（keyframes 在抽屉布局样式表里）
-              animation: mapOutside ? 'dsh-bg-minimap-outside 0.9s ease-in-out infinite' : undefined,
+              animation: mapOutside ? 'dsh-bg-new-minimap-outside 0.9s ease-in-out infinite' : undefined,
             },
             children: [
               mapPlan.image !== null
                 ? jsx('div', {
-                    'data-dsh-bg-minimap-layer': '',
+                    'data-dsh-bg-new-minimap-layer': '',
                     style: mapLayerStyle({
                       backgroundImage: mapPlan.image.backgroundImage,
                       backgroundSize: mapPlan.image.backgroundSize,
@@ -2551,7 +2551,7 @@ export function BgPanel(props: BgPanelProps): unknown {
                     }),
                   })
                 : jsx('video', {
-                    'data-dsh-bg-minimap-video': '',
+                    'data-dsh-bg-new-minimap-video': '',
                     ref: mapCanvasRef,
                     style: mapLayerStyle({ width: '100%', height: '100%', display: 'block' }),
                   }),
@@ -2596,7 +2596,7 @@ export function BgPanel(props: BgPanelProps): unknown {
 
   const currentLabel = snap.mode === 'off' || snap.mode === ''
     ? text('currentOff')
-    : `${text('current')}: ${snap.mode} · ${(snap.value !== '' ? snap.value : snap.mediaKey !== '' ? `/dsh-bg-media/${snap.mediaKey}` : '').slice(0, 120)}`
+    : `${text('current')}: ${snap.mode} · ${(snap.value !== '' ? snap.value : snap.mediaKey !== '' ? `/dsh-bg-new-media/${snap.mediaKey}` : '').slice(0, 120)}`
   const schemeLabel = snap.resolvedText === null
     ? ''
     : `（${snap.resolvedText === 'light' ? text('textLight') : text('textDark')}）`
@@ -2616,7 +2616,7 @@ export function BgPanel(props: BgPanelProps): unknown {
   const tabIndex = Math.max(0, tabDefs.findIndex(([id]) => id === tab))
   const tabThumb = jsx('div', {
     key: 'thumb',
-    'data-testid': 'dsh-bg-tab-thumb',
+    'data-testid': 'dsh-bg-new-tab-thumb',
     'aria-hidden': true,
     style: {
       position: 'absolute',
@@ -2665,7 +2665,7 @@ export function BgPanel(props: BgPanelProps): unknown {
     })
   }
   const tabBar = jsx('div', {
-    'data-testid': 'dsh-bg-tabs',
+    'data-testid': 'dsh-bg-new-tabs',
     style: {
       display: 'flex', alignItems: 'center', gap: '8px', margin: '0 0 12px',
       flexWrap: 'nowrap',
@@ -2676,7 +2676,7 @@ export function BgPanel(props: BgPanelProps): unknown {
       // （键盘/读屏都不会把它当成一个 tab）。
       jsx('div', {
         role: 'tablist',
-        'data-testid': 'dsh-bg-tablist',
+        'data-testid': 'dsh-bg-new-tablist',
         style: {
           position: 'relative',
           display: 'flex',
@@ -2695,7 +2695,7 @@ export function BgPanel(props: BgPanelProps): unknown {
       jsx('button', {
         type: 'button',
         key: 'reset',
-        'data-testid': 'dsh-bg-reset',
+        'data-testid': 'dsh-bg-new-reset',
         onClick: resetToDefault,
         style: {
           flexShrink: 0,
@@ -2815,7 +2815,7 @@ export function BgPanel(props: BgPanelProps): unknown {
    */
   const runtimeErrorRow = snap.status.error !== ''
     ? jsx('p', {
-        'data-testid': 'dsh-bg-status-error',
+        'data-testid': 'dsh-bg-new-status-error',
         style: { color: '#e5484d', fontSize: '0.85em', margin: '6px 0 0', fontWeight: 600 },
         children: text(snap.status.error),
       })
@@ -2824,7 +2824,7 @@ export function BgPanel(props: BgPanelProps): unknown {
   /** v0.4.1：弹窗（#7）——校验错误与视频/应用硬错误统一弹窗，点「知道了」关闭。 */
   const popupOverlay = popupMessage !== ''
     ? jsx('div', {
-        'data-testid': 'dsh-bg-error-popup',
+        'data-testid': 'dsh-bg-new-error-popup',
         onClick: closePopups,
         style: {
           position: 'fixed', inset: 0, zIndex: 2147483000,
@@ -2856,7 +2856,7 @@ export function BgPanel(props: BgPanelProps): unknown {
    * 开启 = 表面半透明 + 背景模糊（磨砂玻璃）；关闭 = 当前半透明表面但不模糊。
    */
   const glassRow = jsx('label', {
-    'data-testid': 'dsh-bg-glass',
+    'data-testid': 'dsh-bg-new-glass',
     style: { fontSize: '0.9em', display: 'inline-flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', margin: '4px 0' },
     children: [
       jsx('input', {
@@ -2889,9 +2889,9 @@ export function BgPanel(props: BgPanelProps): unknown {
       ...wallpaperSliders,
       glassRow,
       runtimeErrorRow,
-      // v0.4.4 (#3)：「恢复默认」已上移到 tab 栏右侧（dsh-bg-reset），此处不再重复
+      // v0.4.4 (#3)：「恢复默认」已上移到 tab 栏右侧（dsh-bg-new-reset），此处不再重复
       jsx('p', {
-        'data-testid': 'dsh-bg-current',
+        'data-testid': 'dsh-bg-new-current',
         style: { fontSize: '0.85em', opacity: 0.7, margin: '12px 0 0', wordBreak: 'break-all' },
         children: `${currentLabel}${schemeLabel}`,
       }),
@@ -2905,9 +2905,9 @@ export function BgPanel(props: BgPanelProps): unknown {
 /** 抽屉宽度（需求 2：在 420px 基础上 +50%）。 */
 export const DRAWER_WIDTH_CSS = 'min(630px, 100vw)'
 /** body 上的抽屉打开标记（"隐藏聊天区"布局的 CSS 作用域）。 */
-const DRAWER_ATTR = 'data-dsh-bg-drawer'
-/** 插件自管的抽屉布局样式表 id（与背景引擎的 dsh-bg-style 相互独立）。 */
-const DRAWER_STYLE_ID = 'dsh-bg-drawer-style'
+const DRAWER_ATTR = 'data-dsh-bg-new-drawer'
+/** 插件自管的抽屉布局样式表 id（与背景引擎的 dsh-bg-new-style 相互独立）。 */
+const DRAWER_STYLE_ID = 'dsh-bg-new-drawer-style'
 
 /**
  * 抽屉打开时的全局布局样式（第二轮需求 1）：**把左侧侧栏与聊天区整列隐藏**，
@@ -2930,7 +2930,7 @@ body[${DRAWER_ATTR}] div:has(> [data-shell-overlay]) > *:not([data-shell-overlay
 }
 /* 第五轮需求 5：小图拖动越界（2 秒宽限期内）边框明暗闪动，
    提示"指针已经在边界外、还能继续操作一会儿"。 */
-@keyframes dsh-bg-minimap-outside {
+@keyframes dsh-bg-new-minimap-outside {
   0%, 100% {
     border-color: var(--dsw-alias-label-primary, #111);
     box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0.55);
@@ -2967,10 +2967,10 @@ function syncDrawerLayoutAttr(open: boolean): void {
     const body = document.body
     if (open) {
       body.setAttribute(DRAWER_ATTR, '')
-      body.style.setProperty('--dsh-bg-drawer-w', DRAWER_WIDTH_CSS)
+      body.style.setProperty('--dsh-bg-new-drawer-w', DRAWER_WIDTH_CSS)
     } else {
       body.removeAttribute(DRAWER_ATTR)
-      body.style.removeProperty('--dsh-bg-drawer-w')
+      body.style.removeProperty('--dsh-bg-new-drawer-w')
     }
   } catch {
     // 受限/异常 DOM：忽略（抽屉照常显示，只是不让位）
@@ -3055,7 +3055,7 @@ export function BgSidebarAction(props: BgSidebarActionProps): unknown {
   const wide = props.wide === true
   return jsx('button', {
     type: 'button',
-    'data-testid': 'dsh-bg-sidebar-action',
+    'data-testid': 'dsh-bg-new-sidebar-action',
     'data-active': open ? '' : undefined,
     'aria-label': text('wallpaper'),
     'aria-expanded': open,
@@ -3115,7 +3115,7 @@ export function BgDrawer(props: BgDrawerProps): unknown {
     ? 'var(--dsw-alias-bg-layer-2, #fff)'
     : (glassSurfaceTokensForTextScheme(scheme)['--dsw-alias-bg-layer-2'] ?? 'rgb(23 28 36 / 0.55)')
   return jsx('div', {
-    'data-dsh-bg-drawer-root': '',
+    'data-dsh-bg-new-drawer-root': '',
     style: {
       position: 'fixed',
       inset: 0,
@@ -3129,13 +3129,13 @@ export function BgDrawer(props: BgDrawerProps): unknown {
       // 需求 9：点击抽屉以外的任何地方关闭抽屉。透明遮罩 —— 不挡看背景。
       jsx('div', {
         key: 'backdrop',
-        'data-testid': 'dsh-bg-drawer-backdrop',
+        'data-testid': 'dsh-bg-new-drawer-backdrop',
         onClick: () => { setDrawerOpen(false) },
         style: { position: 'absolute', inset: 0, background: 'transparent', pointerEvents: 'auto' },
       }),
       jsx('div', {
         key: 'panel',
-        'data-dsh-bg-drawer': '',
+        'data-dsh-bg-new-drawer': '',
         style: {
           position: 'relative',
           height: '100%',
@@ -3164,7 +3164,7 @@ export function BgDrawer(props: BgDrawerProps): unknown {
               // 需求 8：关闭按钮加描边 + 圆形（圆角 50%）
               jsx('button', {
                 type: 'button',
-                'data-testid': 'dsh-bg-drawer-close',
+                'data-testid': 'dsh-bg-new-drawer-close',
                 'aria-label': text('close'),
                 title: text('close'),
                 onClick: () => { setDrawerOpen(false) },

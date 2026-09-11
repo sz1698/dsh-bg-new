@@ -1,7 +1,7 @@
 /**
- * dsh-bg-switch —— host 侧 config.json 读取（文件 IO 包装层）。
+ * dsh-bg-new —— host 侧 config.json 读取（文件 IO 包装层）。
  *
- * 位置：$DSH_HOME/dsh-bg-switch/config.json（与 state.json 同目录；DSH_HOME
+ * 位置：$DSH_HOME/dsh-bg-new/config.json（与 state.json 同目录；DSH_HOME
  * 未设置时 @deepseek-ai/dsh-home-paths 回退 ~/.dsh）。可覆盖字段见
  * src/bg-config.ts 的 {@link BgConfig}（imageExt/videoExt/maxImageMB/maxVideoMB/
  * defaultFit/defaultTextScheme/defaultLoop）。文件缺失 → 全默认；JSON 解析失败
@@ -13,12 +13,12 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import {
   DEFAULT_BG_CONFIG,
   normalizeBgConfig,
   type BgConfig,
 } from './bg-config.ts'
+import { bgDataPath } from './state.ts'
 
 export interface ResolvedBgConfig {
   config: BgConfig
@@ -32,7 +32,7 @@ let cached: ResolvedBgConfig | undefined
 
 /** config.json 绝对路径（测试可用 DSH_HOME 环境变量重定向）。 */
 export function bgConfigPath(): string {
-  return dshHomePath('dsh-bg-switch', 'config.json')
+  return bgDataPath('config.json')
 }
 
 function readRaw(): { raw: unknown; warnings: string[]; source: 'file' | 'default' } {
@@ -49,7 +49,7 @@ function readRaw(): { raw: unknown; warnings: string[]; source: 'file' | 'defaul
     const message = error instanceof Error ? error.message : String(error)
     return {
       raw: undefined,
-      warnings: [`dsh-bg-switch: 读取 config.json 失败（${message}），使用内置默认配置`],
+      warnings: [`dsh-bg-new: 读取 config.json 失败（${message}），使用内置默认配置`],
       source: 'default',
     }
   }

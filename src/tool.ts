@@ -1,11 +1,11 @@
 /**
- * dsh-bg-switch —— host 工具插件（R3 触发面；v0.3 扩 video/fit/textScheme）。
+ * dsh-bg-new —— host 工具插件（R3 触发面；v0.3 扩 video/fit/textScheme）。
  *
  * 注册工具 bg_apply：模型通过对话调用它来更换 DSH 网页界面的背景。
  * v0.3 行为：
  * - mode 扩 'video'：value 为 http(s) 视频 URL；file 参数给本地视频绝对路径时
  *   不内联 —— 生成随机 mediaKey 并随状态写 settings（value 保留路径），host 的
- *   /dsh-bg-media/<key> 路由（src/media.ts）按 key 从当前状态找路径流式伺服
+ *   /dsh-bg-new-media/<key> 路由（src/media.ts）按 key 从当前状态找路径流式伺服
  *   （实现 Range 206，供视频拖动/时长）。跨重启有效：settings 持久化后路由仍
  *   按同一份状态找文件。
  * - 校验扩展名/大小用 config.json（src/config.ts → src/bg-config.ts）的
@@ -15,7 +15,7 @@
  *   posX / posY（0–100 百分比焦点；默认 50=居中），仅 image/video 生效。
  * - v0.4：本地 image 不再内联 data URI —— 与本地 video 一致「登记 + mediaKey」：
  *   校验扩展名/大小（config 表）后 value 保留原路径、mediaKey 写 settings，
- *   host /dsh-bg-media/<key> 路由伺服（GET 先查媒体目录、再按状态原路径回退）。
+ *   host /dsh-bg-new-media/<key> 路由伺服（GET 先查媒体目录、再按状态原路径回退）。
  *   mode=off 整命名空间重置：除 mode/value/mediaKey 外，fit/textScheme/loop/
  *   opacity/posX/posY/volume 全部回默认（config 默认与 1/50/50/1），不留残值。
  *
@@ -47,7 +47,7 @@ import { currentBgConfig } from './config.ts'
 import { persistBgState } from './bg-settings.ts'
 import type { BgState } from './state.ts'
 
-export const name = 'dsh-bg-switch'
+export const name = 'dsh-bg-new'
 export const inject = ['tools']
 
 /** CSS 安全字符集：阻止通过 value 注入分号/花括号/尖括号拆出多余规则。 */
@@ -297,7 +297,7 @@ export function executeBgApply(args: BgApplyArgs, cfg: BgConfig): BgState {
     }
     case 'video': {
       if (file) {
-        // 本地视频不内联：value 留绝对路径，随机 mediaKey 指到 /dsh-bg-media/<key>
+        // 本地视频不内联：value 留绝对路径，随机 mediaKey 指到 /dsh-bg-new-media/<key>
         return buildState('video', validateLocalMediaFile(file, 'video', cfg), randomUUID())
       }
       const value = normalizeMediaUrlValue(String(args.value ?? ''), 'video', cfg)
@@ -348,7 +348,7 @@ export function apply(ctx: Context): void {
       },
       file: {
         type: 'string',
-        description: '本地文件绝对路径（image/video 通用；登记伺服不内联：校验后生成 mediaKey 由插件媒体路由 /dsh-bg-media/<key> 伺服；image ≤maxImageMB，视频不设大小上限）',
+        description: '本地文件绝对路径（image/video 通用；登记伺服不内联：校验后生成 mediaKey 由插件媒体路由 /dsh-bg-new-media/<key> 伺服；image ≤maxImageMB，视频不设大小上限）',
       },
       fit: {
         type: 'string',

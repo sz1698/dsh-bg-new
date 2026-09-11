@@ -1,5 +1,5 @@
 /**
- * dsh-bg-switch —— **host 半**的构建配置（`src/index.ts` → `lib/index.js`）。
+ * dsh-bg-new —— **host 半**的构建配置（`src/index.ts` → `lib/index.js`）。
  *
  * 为什么需要它：分发时插件行按包名解析（见 cordis.patch.yml），Node 解析到本包的
  * `exports["."]`，所以 host 半必须有**已构建的 JS 产物**，不能只留 `src/*.ts`。
@@ -22,7 +22,7 @@
 import { defineConfig } from 'tsdown'
 
 /** 包名 = module-table 行 id；必须与 package.json 的 name 一致。 */
-const PLUGIN_ID = 'dsh-bg-switch'
+const PLUGIN_ID = 'dsh-bg-new'
 
 export default defineConfig({
   name: `${PLUGIN_ID}/host`,
