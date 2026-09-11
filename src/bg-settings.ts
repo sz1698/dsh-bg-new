@@ -253,16 +253,26 @@ function inheritLegacyBgNamespace(
       const patch = pickInheritableFields(legacyUser)
       if (patch === undefined) continue
       void scope.update(patch).then(
-        () => settingsCtx.logger.info(
-          `dsh-bg-new: inherited settings from legacy namespace "${legacyNs}"`,
-        ),
-        (error: unknown) => settingsCtx.logger.warn(
-          `dsh-bg-new: could not inherit settings from "${legacyNs}": ${String(error)}`,
-        ),
+        () => logSafe(settingsCtx, 'info',
+          `dsh-bg-new: inherited settings from legacy namespace "${legacyNs}"`),
+        (error: unknown) => logSafe(settingsCtx, 'warn',
+          `dsh-bg-new: could not inherit settings from "${legacyNs}": ${String(error)}`),
       )
     } catch (error) {
-      settingsCtx.logger.warn(`dsh-bg-new: legacy namespace "${legacyNs}" skipped: ${String(error)}`)
+      logSafe(settingsCtx, 'warn', `dsh-bg-new: legacy namespace "${legacyNs}" skipped: ${String(error)}`)
     }
+  }
+}
+
+/**
+ * 安全写日志：继承是**尽力而为**的旁路，绝不该因为 logger 缺失而抛出未捕获异常
+ * （异步回调里抛出的异常在 host 进程里表现为 unhandled rejection，很难排查）。
+ */
+function logSafe(settingsCtx: Context, level: 'info' | 'warn', message: string): void {
+  try {
+    settingsCtx.logger[level](message)
+  } catch {
+    // logger 不可用 → 静默；继承本身不依赖日志
   }
 }
 
