@@ -230,7 +230,8 @@ CI（[.github/workflows/ci.yml](./.github/workflows/ci.yml)）跑的就是这几
 | `lib/index.js` | host 半产物（ESM，**已提交进仓库**） |
 | `cordis.patch.yml` | **分发用**组合包 patch（行按包名引用） |
 | `cordis.example.yml` | **开发用** overlay 模板（复制成被忽略的 `cordis.yml` 后填本机路径） |
-| `build/verify-client.mjs` | 全量验证脚本（`npm run verify`） |
+| `build/verify-client.mjs` | 全量验证脚本：结构 / 渲染引擎 / 工具 / 配置的 332 项断言（`npm run verify`） |
+| `build/check-bundles.mjs` | 产物契约检查：客户端闭包工厂格式与 host 导出（`npm run verify` 里的第二步） |
 
 ### 发布（维护者）
 

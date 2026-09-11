@@ -70,7 +70,7 @@
     "build": "npm run build:client && npm run build:host",
     "build:client": "tsdown",
     "build:host": "tsdown --config tsdown.host.config.ts",
-    "verify": "node build/verify-client.mjs",
+    "verify": "node build/verify-client.mjs && node build/check-bundles.mjs",
     "prepublishOnly": "npm run build"
   }
 }
