@@ -184,6 +184,7 @@ import {
   type BgTextScheme,
 } from '../bg-config.ts'
 import {
+  baseSurfaceForTextScheme,
   bgMediaRender,
   bgThemeColorFor,
   fitCssFor,
@@ -192,13 +193,14 @@ import {
   GLASS_BACKDROP_SELECTOR,
   maskTokensForTextScheme,
   resolveTextScheme,
+  tabTintForTextScheme,
   tokensForTextScheme,
   type BgMediaRender,
 } from './bg-palette.ts'
 
 // ---- 供验证/复用导出的纯工具（保持名字稳定） ----
 
-export { parseCssColor, relativeLuminance, backgroundLuminance as bgLuminance, resolveTextScheme, fitCssFor, focusPositionCss, tokensForTextScheme, maskTokensForTextScheme, previewThemeFor, glassSurfaceTokensForTextScheme, GLASS_BACKDROP_FILTER, GLASS_BACKDROP_SELECTOR, REVEAL_TOKENS, TOP_REGION_TOKENS, bgMediaRender, bgThemeColorFor, zoomBackgroundSize, cssEscape } from './bg-palette.ts'
+export { parseCssColor, relativeLuminance, backgroundLuminance as bgLuminance, resolveTextScheme, fitCssFor, focusPositionCss, tokensForTextScheme, maskTokensForTextScheme, previewThemeFor, glassSurfaceTokensForTextScheme, baseSurfaceForTextScheme, tabTintForTextScheme, GLASS_BACKDROP_FILTER, GLASS_BACKDROP_SELECTOR, REVEAL_TOKENS, TOP_REGION_TOKENS, bgMediaRender, bgThemeColorFor, zoomBackgroundSize, cssEscape } from './bg-palette.ts'
 export { DEFAULT_BG_CONFIG as bgDefaultConfig, normalizeBgConfig as bgNormalizeConfig, BG_FITS, BG_TEXT_SCHEMES } from '../bg-config.ts'
 export { urlExtOf, mediaUrlKindConflict, BG_CSS_SAFE } from '../bg-config.ts'
 
@@ -592,6 +594,13 @@ function buildStyleText(s: BgSnapshot): string {
   if (tokenLines.length > 0) {
     lines.push('body {')
     lines.push(...tokenLines)
+    lines.push('}')
+    // 1a) 画布底色：图层（z-index:-1）以下必须有**确定**的底色，否则透明度 <1 的
+    //     混合区与 =0 的完全透明区露出的是运行环境自己的颜色 —— 浏览器画布是白
+    //     （泛白）、桌面窗口底色是黑，同一个设置两端不一样。写在 html 上：图层仍在
+    //     它之上，壁纸照常透出，而半透明/全透明处两端观感一致。
+    lines.push('html {')
+    lines.push(`  background-color: ${baseSurfaceForTextScheme(s.resolvedText)} !important;`)
     lines.push('}')
   }
   // 1b) v0.4.4 (#2)：遮罩/浮层族 token 必须在 `body *` 上重写 —— 主题把
@@ -1532,7 +1541,7 @@ export function apply(ctx: CtxLike): void {
 
   ctx.locale?.register('settings.dsh-bg-new', {
     zh: {
-      nav: '壁纸', title: '壁纸', presets: '系统', custom: '自定义',
+      nav: '壁纸', title: '壁纸', presets: '推荐', custom: '自定义',
       color: '纯色', gradient: '渐变', image: '图片', video: '视频',
       applyColor: '应用', applyGradient: '应用', applyImage: '应用', applyVideo: '应用',
       reset: '重置', current: '当前背景', currentOff: '默认（未设置）',
@@ -1589,7 +1598,7 @@ export function apply(ctx: CtxLike): void {
       ...zhPresetDict,
     },
     en: {
-      nav: 'Wallpaper', title: 'Wallpaper', presets: 'System', custom: 'Custom',
+      nav: 'Wallpaper', title: 'Wallpaper', presets: 'Presets', custom: 'Custom',
       color: 'Color', gradient: 'Gradient', image: 'Image', video: 'Video',
       applyColor: 'Apply', applyGradient: 'Apply', applyImage: 'Apply', applyVideo: 'Apply',
       reset: 'Reset', current: 'Current', currentOff: 'Default (unset)',
@@ -2613,6 +2622,11 @@ export function BgPanel(props: BgPanelProps): unknown {
   // v0.6.0（第七轮需求 2）：**药丸式分段 tab** —— 一条 999px 圆角的底槽 + 一个
   // 滑动的"滑块"（thumb）。切换 tab 时滑块用 transform 过渡平移过去（位移渐变），
   // 文字颜色/字重也淡入淡出，取代原来"每个 tab 自己描边/填蓝"的写法。
+  //
+  // 底槽与滑块都用**半透明** tint（需求 1）：之前底槽吃主题的 --dsw-specific-selector
+  // （不透明静态色）、滑块吃 --dsw-alias-bg-layer-1（近黑 0.96），在壁纸上就是一条
+  // 实心黑条。现在按文字方案取成对 tint，壁纸透得过来。
+  const tabTint = tabTintForTextScheme(snap.resolvedText)
   const tabIndex = Math.max(0, tabDefs.findIndex(([id]) => id === tab))
   const tabThumb = jsx('div', {
     key: 'thumb',
@@ -2625,7 +2639,7 @@ export function BgPanel(props: BgPanelProps): unknown {
       left: '3px',
       width: `calc((100% - 6px) / ${tabDefs.length})`,
       borderRadius: '999px',
-      background: 'var(--dsw-alias-bg-layer-1, #fff)',
+      background: tabTint.thumb,
       boxShadow: 'var(--dsw-elevation-panel, 0 1px 3px rgb(0 0 0 / 0.12))',
       transform: `translateX(${tabIndex * 100}%)`,
       transition: 'transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1)',
@@ -2685,7 +2699,7 @@ export function BgPanel(props: BgPanelProps): unknown {
           minWidth: 0,
           padding: '3px',
           borderRadius: '999px',
-          background: 'var(--dsw-specific-selector, rgba(127, 127, 127, 0.14))',
+          background: tabTint.track,
           border: '1px solid var(--dsw-alias-border-l1, rgba(127, 127, 127, 0.16))',
         },
         children: [tabThumb, ...tabDefs.map(([id, label]) => tabButton(id, label))],
@@ -2939,6 +2953,12 @@ body[${DRAWER_ATTR}] div:has(> [data-shell-overlay]) > *:not([data-shell-overlay
     border-color: rgba(127, 127, 127, 0.35);
     box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0.08);
   }
+}
+/* 侧栏「壁纸」按钮的悬浮底色（需求 3）：与它下面的 Settings 控件同一枚 token
+   （--dsw-alias-interactive-bg-hover：浅字方案 = rgba(255,255,255,0.10) 白色透明）。
+   按钮底色是**内联样式**，层级高于样式表，所以这里必须 !important 才盖得住。 */
+[data-testid="dsh-bg-new-sidebar-action"]:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.10)) !important;
 }
 `
 

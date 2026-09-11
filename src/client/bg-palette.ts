@@ -412,6 +412,46 @@ export function tokensForTextScheme(scheme: 'light' | 'dark'): Record<string, st
   return { ...REVEAL_TOKENS, ...(scheme === 'light' ? LIGHT_TEXT_TOKENS : DARK_TEXT_TOKENS) }
 }
 
+// ---- 画布底色（透明度混合的基准面）----
+
+/**
+ * 图层以下的**确定底色**（写 `html` 的 background-color）。
+ *
+ * 为什么需要它：背景层的 z-index 是 -1，铺在画布之上、内容之下；而 REVEAL_TOKENS
+ * 把 `--dsw-alias-bg-base` 置成 transparent 让壁纸透出整窗。于是"图层没盖住的地方
+ * ——透明度 <1 的混合区、透明度 =0 的完全透明区——露出的颜色"就交给了**运行环境**：
+ * 浏览器画布是白的（泛白），桌面窗口底色是黑的，同一个设置两端观感不一样。
+ *
+ * 这里按文字方案给出确定的画布底色（取该方案 `--dsw-alias-bg-layer-1` 的实心形式），
+ * 由引擎写到 `html` 上：图层仍在它之上、壁纸照常透出，而半透明/全透明时露出的是
+ * 这个色 —— 网页端与桌面端一致。
+ *
+ * @param scheme - 已解析的文字方案（浅字方案配深底，深字方案配浅底）。
+ * @returns 不透明的 CSS 颜色。
+ */
+export function baseSurfaceForTextScheme(scheme: 'light' | 'dark'): string {
+  return scheme === 'light' ? 'rgb(10 13 18)' : 'rgb(250 251 253)'
+}
+
+// ---- 药丸式页签的底色 tint ----
+
+/**
+ * 药丸式分段控件（页签栏 + 选中滑块）的底色 —— **必须是半透明的**，让壁纸透过来。
+ *
+ * 之前底槽吃主题的 `--dsw-specific-selector`（不透明的静态色）、滑块吃
+ * `--dsw-alias-bg-layer-1`（本插件调色板里是 `rgb(10 13 18 / 0.96)`，近黑），
+ * 于是壁纸上出现一条实心黑条。这里按文字方案给出成对的半透明 tint：
+ * 底槽薄、滑块厚（选中的那个要看得出来）。
+ *
+ * @param scheme - 已解析的文字方案；`null`（未设背景）时给中性灰，和主题底槽同量级。
+ * @returns `{ track, thumb }` 两个 CSS 颜色。
+ */
+export function tabTintForTextScheme(scheme: 'light' | 'dark' | null): { track: string; thumb: string } {
+  if (scheme === 'dark') return { track: 'rgba(15,17,21,0.10)', thumb: 'rgba(15,17,21,0.22)' }
+  if (scheme === 'light') return { track: 'rgba(255,255,255,0.14)', thumb: 'rgba(255,255,255,0.28)' }
+  return { track: 'rgba(127,127,127,0.14)', thumb: 'rgba(127,127,127,0.26)' }
+}
+
 // ---- v0.4.4 (#2)：设置弹窗遮罩选择器 ----
 
 /**

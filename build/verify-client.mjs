@@ -1325,6 +1325,13 @@ check('A12 cleanup leaves body children empty of ours', body.children.length ===
       JSON.stringify({ bg: panel?.style?.background, filter: panel?.style?.backdropFilter }))
     check('A18 侧栏按钮无描边（第二轮需求 3）',
       wideBtn?.style?.border === 'none', String(wideBtn?.style?.border))
+    // 第八轮需求 3：悬浮底色 —— 按钮底色是内联样式（层级高于样式表），
+    // 所以必须由抽屉布局样式表用 !important 补一条 :hover 规则。
+    check('A18 侧栏按钮有 :hover 悬浮底色规则（与 Settings 同一枚 token，第八轮需求 3）',
+      drawerCss.includes('[data-testid="dsh-bg-new-sidebar-action"]:hover')
+        && drawerCss.includes('--dsw-alias-interactive-bg-hover')
+        && /:hover\s*\{[^}]*!important/.test(drawerCss),
+      drawerCss.slice(drawerCss.indexOf(':hover'), drawerCss.indexOf(':hover') + 140))
     check('A18 视频播放/停止合并为一个图标按钮（第二轮需求 2）', (() => {
       panelSnap = { ...baseSnap, mode: 'video', value: 'https://cdn.example.com/v.mp4', fit: 'cover' }
       const nodes = flatten(moduleExports.BgPanel({ setBg: () => {}, text: (k) => k, ...panelSnap }))
@@ -1363,10 +1370,10 @@ check('A12 cleanup leaves body children empty of ours', body.children.length ===
         && moduleExports.bgMediaFieldVerdict('video', 'photo.jpg', localImgState) === 'invalid'
         && moduleExports.bgMediaFieldVerdict('image', 'photo.jpg', { mode: 'image', mediaKey: '', value: 'photo.jpg' }) === 'invalid')
     // 第三轮需求 1–4：四个来源行都不再有标签；页签与抽屉标题文案
-    check('A18 来源页签与抽屉标题文案（第三/七轮需求）',
+    check('A18 来源页签与抽屉标题文案（第三轮 / 第八轮需求）',
       localeDict?.zh?.image === '图片' && localeDict?.zh?.video === '视频'
-        && localeDict?.zh?.title === '壁纸' && localeDict?.zh?.presets === '系统'
-        && localeDict?.en?.image === 'Image' && localeDict?.en?.presets === 'System',
+        && localeDict?.zh?.title === '壁纸' && localeDict?.zh?.presets === '推荐'
+        && localeDict?.en?.image === 'Image' && localeDict?.en?.presets === 'Presets',
       JSON.stringify({ image: localeDict?.zh?.image, video: localeDict?.zh?.video, title: localeDict?.zh?.title, presets: localeDict?.zh?.presets }))
     // 第七轮需求 2：药丸式分段 tab + 滑动滑块（位移过渡）
     check('A18 tab 是药丸式分段控件（底槽 999px + 滑块 translateX 过渡 + 文字渐变）', (() => {
@@ -1387,6 +1394,30 @@ check('A12 cleanup leaves body children empty of ours', body.children.length ===
       const thumb = nodes.find((n) => n['data-testid'] === 'dsh-bg-new-tab-thumb')
       return thumb !== undefined && thumb.style.transform === 'translateX(300%)'
     })())
+    // 第八轮需求 1：页签底槽与滑块必须**半透明**（壁纸要透得过来）。
+    // 之前底槽吃主题的 --dsw-specific-selector、滑块吃 --dsw-alias-bg-layer-1
+    // （近黑 0.96），在壁纸上就是一条实心黑条。
+    check('A18 页签底槽与滑块是半透明 tint（不再吃实心 token）', (() => {
+      const cases = [
+        { scheme: 'light', expect: 'rgba(255,255,255,0.14)' },
+        { scheme: 'dark', expect: 'rgba(15,17,21,0.10)' },
+        { scheme: null, expect: 'rgba(127,127,127,0.14)' },
+      ]
+      const fnOk = cases.every(({ scheme, expect }) => {
+        const tint = moduleExports.tabTintForTextScheme(scheme)
+        return tint?.track === expect && /^rgba\(/.test(String(tint?.thumb))
+          && parseFloat(String(tint.thumb).split(',')[3]) > parseFloat(expect.split(',')[3])
+      })
+      panelSnap = { ...baseSnap, mode: 'image', value: 'https://example.com/t.jpg', resolvedText: 'light' }
+      const nodes = flatten(moduleExports.BgPanel({ setBg: () => {}, text: (k) => k, ...panelSnap }))
+      const list = nodes.find((n) => n['data-testid'] === 'dsh-bg-new-tablist')
+      const thumb = nodes.find((n) => n['data-testid'] === 'dsh-bg-new-tab-thumb')
+      const applied = list?.style?.background === 'rgba(255,255,255,0.14)'
+        && thumb?.style?.background === 'rgba(255,255,255,0.28)'
+        && !String(list?.style?.background).includes('--dsw-specific-selector')
+        && !String(thumb?.style?.background).includes('bg-layer-1')
+      return fnOk && applied
+    })(), JSON.stringify({ tint: moduleExports.tabTintForTextScheme('light') }))
     check('A18 四个来源页签的编辑行都没有来源标签（第三轮需求 1）', (() => {
       // row() 的标签是 width:44px 的 span；页签按钮带 role=tab，两者可区分。
       const rowLabelCount = (mode, key) => {
@@ -1413,6 +1444,27 @@ check('A12 cleanup leaves body children empty of ours', body.children.length ===
     moduleExports.applyBg('color', '#0d1117')
     check('A18 #E 引擎 CSS 真的把这两个 token 置 transparent（顶部区域随整窗透出）',
       top.every((k) => styleText().includes(`${k}: transparent !important`)))
+    // 第八轮需求 4：图层以下必须有**确定**的画布底色 —— 否则透明度 <1 的混合区与
+    // =0 的完全透明区露出的是运行环境自己的颜色（浏览器画布白 / 桌面窗口黑），
+    // 同一个设置两端观感不同。底色按文字方案取（浅字方案深底、深字方案浅底）。
+    check('A18 引擎把确定画布底色写到 html（浅字方案深底 / 深字方案浅底；off 时不写）', (() => {
+      const light = moduleExports.baseSurfaceForTextScheme('light')
+      const dark = moduleExports.baseSurfaceForTextScheme('dark')
+      const cssHas = (color) => styleText().includes('html {')
+        && styleText().includes(`background-color: ${color} !important`)
+      moduleExports.applyBg('color', '#0d1117')
+      const deepOk = light === 'rgb(10 13 18)' && cssHas(light)
+      moduleExports.applyBg('color', '#f5f5f5')
+      const lightOk = dark === 'rgb(250 251 253)' && cssHas(dark)
+      moduleExports.applyBg('off', '')
+      const offClean = !styleText().includes('html {')
+      // 还原本段后续断言期望的状态（它们依赖 color 生效时的 meta theme-color）
+      moduleExports.applyBg('color', '#0d1117')
+      return deepOk && lightOk && offClean
+    })(), JSON.stringify([
+      moduleExports.baseSurfaceForTextScheme('light'),
+      moduleExports.baseSurfaceForTextScheme('dark'),
+    ]))
     check('A18 #E color → meta theme-color 同步为该色（ThemePresenter 算不出透明底）',
       moduleExports.bgThemeColorFor('color', '#0d1117', 'light') === 'rgb(13 17 23)'
         && moduleExports.bgThemeColorFor('gradient', 'linear-gradient(135deg, #ffffff, #000000)', 'light') === 'rgb(128 128 128)'

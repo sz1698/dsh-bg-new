@@ -51,7 +51,7 @@ npm install && npm run build
 dsh plugin --profile web add .
 ```
 
-国内镜像：<https://gitee.com/iuniko/dsh-bg.git>
+国内镜像：<https://gitee.com/iuniko/dsh-bg/tree/main>
 
 ### 装完确认
 
