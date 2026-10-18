@@ -7,6 +7,66 @@
 
 ---
 
+## 0.8.0
+
+**主题：跟进 DSH 0.2.x 的新设置模型（entry Config + configForms + configEditor），同时保持 0.1.x 可用。**
+
+### 背景：0.7.0 在 0.2.x 上直接起不来
+
+桌面端 `@deepseek-ai/dsh-desktop` 0.2.1-rc.2 的 web boot 报：
+
+```
+web boot: 1 entry did not activate
+dsh-bg-new: pending (waiting for service: settingsScope)
+```
+
+0.2.x 把一个插件的设置从"注册一个 settings 命名空间"整个换成了
+"用 `Config` + `.volatile()` 声明字段，按 **profile entry id** 提供表单"：
+
+- 客户端 `ctx.settingsScope` **彻底不存在**了（整个 0.2.1 运行时的 asar 里搜不到
+  这个标识），换成 `ctx.configForms.get(entryId)`；
+- 宿主 `settings.register(ns, schema)` 没了，换成"插件自己声明 `Config`（字段
+  全 `.volatile()`）+ `ctx.configEditor.edit(entry, fn)` 把值写回 profile 的
+  `cordis.patch.yml`"；
+- 客户端的 entry 因为 `inject: ['slots','settingsScope','locale']` 永远等不到
+  `settingsScope`，于是始终 pending；桌面端把这个 pending 当**启动失败**（网页端
+  只是控制台报错），所以窗口里弹出"应用无法启动或已意外停止"。
+
+### 双代兼容（0.1.x 与 0.2.x 同一份产物）
+
+- **host**（`src/bg-settings.ts`）：`installBgNamespace` → `installBgSettings(ctx, config)`。
+  - `apply` 第二参是 volatile 引用集合（0.2.x）→ 进 `live` 通道：值直接读引用，
+    写入走 `configEditor.edit()`；同时 `settings.configure({auto:false}, ctx.fiber)`
+    告知"本插件自带面板、不要生成自动表单"。
+  - 否则进 `legacy` 通道：`settings.register(BG_NAMESPACE, schema)` 老路径原样保留
+    （含 `watch` 清媒体缓存与 `dsh-bg` → `dsh-bg-new` 命名空间继承）。
+  - 两代都没有（headless/无 settings provider）→ 继续写 `state.json` 回退镜像。
+- **host schema**：把字段表抽成 `bgSectionFields()`，`buildBgSectionSchema()`（0.1.x
+  命名空间）与 `buildBgEntrySchema()`（0.2.x entry Config）各取一份；
+  `.volatile()` 用运行时探测包一层，老宿主上退化成普通 schema。
+  **只读镜像字段（imageExt / maxImageMB / defaultFit …）也包 volatile**：0.2.x 的
+  表单投影会丢掉非 volatile 字段，不包的话客户端读不到 `config.json` 的限制与默认。
+- **client**（`src/client/index.ts`）：`inject` 收窄成 `['slots','locale']`，
+  设置通道改用 `ctx.inject(['configForms'] / ['settingsScope'])` 延迟绑定
+  （先到先得），读写代码不变 —— 两代的 scope/表单快照形状本就一致
+  （`getSnapshot/subscribe/set/unset/mutate`）。
+- **client 就绪守卫**：0.2.x 的 form 快照带 `status`（loading/ready/unavailable），
+  未就绪时不再拿"空 section"当权威，避免启动瞬间用默认值刷掉壁纸。
+
+### 已知差异
+
+- 0.2.x 的 volatile 引用只有 `get()`、**没有订阅接口**（cosmokit `createVolatile`），
+  所以"恢复默认 → 清媒体缓存"在那边只在**本插件自己把 `mode` 写成 `off`** 之后触发
+  （0.1.x 仍由 `watch` 覆盖所有写者）。客户端点「重置」留下的媒体文件不会被清掉。
+- **不在激活时清媒体缓存**：`$DSH_HOME/dsh-bg-new/media/` 是各 profile 共用的目录
+  （网页端与桌面端同一个 `DSH_HOME`），按某个 profile 的 `mode=off` 在启动时清一遍
+  会删掉另一个 profile 正在用的壁纸。早期 0.8.0 构建有这个 bug，已移除。
+- 0.2.x 下背景值落在 profile 的 `cordis.patch.yml`（entry `dsh-bg-new` 的 `config`），
+  不再是 `settings.yaml` 里的命名空间段落；老 `settings.yaml` 里的 `dsh-bg-new:`
+  段落会被 0.2.x 的一次性导入写进同 id 的 entry。
+
+---
+
 ## 0.7.0
 
 **主题：为公开发布把插件标识从 `dsh-bg` 改成 `dsh-bg-new`，并保证老用户的背景不丢。**
