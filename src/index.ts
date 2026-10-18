@@ -27,14 +27,28 @@
 import type { Context } from '@deepseek-ai/cordis'
 import * as toolPlugin from './tool.ts'
 import * as mediaPlugin from './media.ts'
-import { installBgNamespace } from './bg-settings.ts'
+import { buildBgEntrySchema, installBgSettings } from './bg-settings.ts'
+import { loadBgConfig } from './config.ts'
 
 export const name = 'dsh-bg-new'
 export const inject = ['tools']
 
-export function apply(ctx: Context): void {
-  // 先装命名空间注册（延迟到 settings 可用），再挂嵌套插件
-  ctx.effect(() => installBgNamespace(ctx), 'dsh-bg-new: settings namespace')
+/**
+ * v0.8.0：把背景字段声明成本 entry 的 Config。
+ *
+ * DSH 0.2.x 的 settings 模型是"表单 = 某个 profile 条目里 `.volatile()` 的字段"，
+ * 所以宿主必须把字段写在 Config 上，客户端才能用
+ * `ctx.configForms.get('dsh-bg-new')` 拿到同一份值、`bg_apply` 才能经
+ * `ctx.configEditor.edit()` 写回 profile patch。
+ *
+ * 0.1.x 的宿主没有 `.volatile()`，同一份 schema 退化成普通 Config（那边改走
+ * settings.register 命名空间，见 bg-settings.ts 的 installBgSettings）。
+ */
+export const Config = buildBgEntrySchema(loadBgConfig().config)
+
+export function apply(ctx: Context, config?: unknown): void {
+  // 先装设置通道（0.2.x: entry Config；0.1.x: settings 命名空间），再挂嵌套插件
+  ctx.effect(() => installBgSettings(ctx, config), 'dsh-bg-new: settings channel')
   ctx.plugin({
     name: toolPlugin.name,
     inject: toolPlugin.inject ?? [],

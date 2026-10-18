@@ -1963,7 +1963,7 @@ if (!hostImportsFailed) {
         { mode: 'gradient', value: 'linear-gradient(135deg,#1e2a78,#2b1055)', opacity: 0.45, posX: 33.4 },
         undefined,
       )
-      const dispose1 = bgSettings.installBgNamespace(c1.ctx)
+      const dispose1 = bgSettings.installBgSettings(c1.ctx)
       await settle()
       check('B10 老命名空间有值 + 新命名空间空 → 一次性继承（背景不丢）',
         c1.registrations.join(',') === 'dsh-bg-new,dsh-bg'
@@ -1981,7 +1981,7 @@ if (!hostImportsFailed) {
         { mode: 'gradient', value: 'linear-gradient(135deg,#1e2a78,#2b1055)' },
         { mode: 'color', value: '#123456' },
       )
-      const dispose2 = bgSettings.installBgNamespace(c2.ctx)
+      const dispose2 = bgSettings.installBgSettings(c2.ctx)
       await settle()
       check('B10 新命名空间已写过 → 不继承（用户当前改动优先）',
         c2.updates.length === 0 && c2.registrations.includes('dsh-bg'),
@@ -1990,7 +1990,7 @@ if (!hostImportsFailed) {
 
       // (3) settings 文档里没有老段落 → 连老命名空间都不注册（全新安装不留痕）
       const c3 = makeNsCase('ui-theme:\n  preference: light\n', undefined, undefined)
-      const dispose3 = bgSettings.installBgNamespace(c3.ctx)
+      const dispose3 = bgSettings.installBgSettings(c3.ctx)
       await settle()
       check('B10 settings 文档里没有老段落 → 不注册老命名空间、不写继承',
         c3.registrations.join(',') === 'dsh-bg-new' && c3.updates.length === 0,
@@ -2003,7 +2003,7 @@ if (!hostImportsFailed) {
         { mode: 'color', value: '#0a0a0a', legacyOnlyField: 'x', imageExt: ['png'] },
         undefined,
       )
-      const dispose4 = bgSettings.installBgNamespace(c4.ctx)
+      const dispose4 = bgSettings.installBgSettings(c4.ctx)
       await settle()
       const inherited4 = c4.updates[0]?.[1] ?? {}
       check('B10 继承只搬白名单字段（未知键 / 只读镜像字段不进 user 层）',
@@ -2014,7 +2014,7 @@ if (!hostImportsFailed) {
 
       // (5) 老段落存在但用户层是空的（例如只写了默认值后被清空）→ 不写继承
       const c5 = makeNsCase('dsh-bg:\n', undefined, undefined)
-      const dispose5 = bgSettings.installBgNamespace(c5.ctx)
+      const dispose5 = bgSettings.installBgSettings(c5.ctx)
       await settle()
       check('B10 老段落存在但 user 层为空 → 不写继承',
         c5.registrations.includes('dsh-bg') && c5.updates.length === 0,

@@ -37,6 +37,16 @@
  * - 上传/登记的本地媒体不再把原文件内容写进 value：value 留空或写原路径，
  *   mediaKey 指向 host 媒体目录 /dsh-bg-new-media/<key>（见 src/media.ts v0.4）。
  *
+ * v0.8.0 设置模型变化（DSH 0.2.x 兼容）：
+ * - 0.2.x 把设置模型换成了"插件用 Config + .volatile() 声明字段，客户端按 entry id
+ *   读表单、host 用 ctx.configEditor.edit() 落 profile patch"，旧的
+ *   ctx.settingsScope / settings.register(ns, schema) 在 0.2.x 里已经**整体移除**
+ *   （本插件 v0.7.0 因此在桌面端 0.2.1-rc.2 上 boot 失败：客户端 entry 永远 pending
+ *   在 settingsScope 上）。本模块现在两条通道都装：有 volatile 引用走 live，
+ *   没有就走 legacy，客户端相应地在 configForms / settingsScope 里择一。
+ * - 只读镜像字段也一并声明成 volatile：0.2.x 的表单投影会丢掉非 volatile 字段，
+ *   否则客户端读不到 config.json 里的扩展名/上限/默认适配。
+ *
  * v0.5.0 schema 变化：
  * - 新增运行时字段 zoom（1..3，step 0.05，默认 1=不缩放）：在 fit 基准尺寸上
  *   放大内容（image → background-size；video → transform: scale），缩放中心 =
@@ -138,8 +148,8 @@ export interface BgSectionDoc extends BgConfigMirror {
  * - 客户端 scope 快照（describe view.value）自动携带镜像字段与运行时默认；
  * - 首次使用时（user 层没有该字段）即得到 config 的默认行为。
  */
-export function buildBgSectionSchema(cfg: ResolvedBgConfig['config']): z<BgSectionDoc> {
-  return z.object({
+export function bgSectionFields(cfg: ResolvedBgConfig['config']): Record<string, unknown> {
+  return {
     mode: z.union([...BG_MODES]).default('off'),
     value: z.string().default(''),
     fit: z.union([...BG_FITS]).default(cfg.defaultFit),
@@ -166,15 +176,107 @@ export function buildBgSectionSchema(cfg: ResolvedBgConfig['config']): z<BgSecti
     defaultFit: z.union([...BG_FITS]).default(cfg.defaultFit),
     defaultTextScheme: z.union([...BG_TEXT_SCHEMES]).default(cfg.defaultTextScheme),
     defaultLoop: z.boolean().default(cfg.defaultLoop),
-  })
+  }
 }
 
-/** 本模块持有的已注册 scope；settings 可用且注册完成前为 undefined（回退文件）。 */
-interface ActiveScope {
+/** 0.1.x：settings 命名空间 schema（`settings.register(ns, schema)` 的参数）。 */
+export function buildBgSectionSchema(cfg: ResolvedBgConfig['config']): z<BgSectionDoc> {
+  return z.object(bgSectionFields(cfg) as Record<string, never>) as unknown as z<BgSectionDoc>
+}
+
+/**
+ * 0.2.x：entry Config —— 同一份字段逐个包 `.volatile()`。
+ *
+ * loader 会把这些字段解析成引用对象（`config.mode.get()`），settings 服务再按
+ * **entry id** 把它们投影成客户端表单（`configForms.get('dsh-bg-new')`）。
+ * `.volatile()` 是 schemastery ≥ 0.2 才有的能力，所以这里做运行时探测：
+ * 老宿主上退化成同一份普通 schema，本包在那边照旧走 settings 命名空间。
+ *
+ * 只读镜像字段（imageExt / maxImageMB / defaultFit …）同样包 volatile：0.2.x 的
+ * 表单投影会**丢掉非 volatile 字段**，不包的话客户端读不到 config.json 的限制与默认。
+ */
+export function buildBgEntrySchema(cfg: ResolvedBgConfig['config']): z<BgSectionDoc> {
+  const fields = bgSectionFields(cfg)
+  const wrapped: Record<string, unknown> = {}
+  for (const [field, schema] of Object.entries(fields)) {
+    const volatile = (schema as { volatile?: unknown }).volatile
+    wrapped[field] = typeof volatile === 'function' ? (volatile as () => unknown).call(schema) : schema
+  }
+  return z.object(wrapped as Record<string, never>) as unknown as z<BgSectionDoc>
+}
+
+/**
+ * 设置通道：0.2.x 与 0.1.x 是两套完全不同的宿主设置模型，本模块把它们收进一个内部接缝。
+ *
+ * - `legacy`：**0.1.x** 的 settings 命名空间
+ *   （`settings.register(ns, schema)` → `SettingsScope`，可 get/update/watch；
+ *   命名空间按 ns 字符串独立存放在 settings 文档里）。
+ * - `live`：**0.2.x** 的 entry Config
+ *   （插件用 `Config` + `.volatile()` 声明字段，loader 把每个 volatile 字段解析成
+ *   只有 `get()` 的不可变引用；客户端用 `configForms.get(entryId)` 读同一份值，
+ *   写入经 `ctx.configEditor.edit(entry, fn)` 落到 profile 的 `cordis.patch.yml`）。
+ *
+ * 两者都缺失时回退 `$DSH_HOME/dsh-bg-new/state.json`（headless / 无 settings 部署）。
+ */
+interface LegacyScope {
   get(): BgSectionDoc
   update(patch: Partial<BgSectionDoc>): Promise<void>
 }
-let activeScope: ActiveScope | undefined
+/** 0.2.x 的 volatile 配置引用（cosmokit `createVolatile`）：只有 get()，没有订阅。 */
+export interface BgVolatileRef<T = unknown> {
+  get(): T
+}
+/** 背景字段的 volatile 引用集合（0.2.x 里 `apply(ctx, config)` 的第二参形状）。 */
+export type BgVolatileConfig = { [K in keyof BgSectionDoc]: BgVolatileRef<BgSectionDoc[K]> }
+/** 0.2.x 的配置文件编辑器（`@deepseek-ai/dsh-config-editor` 提供的 ctx.configEditor）。 */
+export interface BgConfigEditorLike {
+  edit(
+    entry: unknown,
+    change: (
+      current: Record<string, unknown>,
+      inherited: Record<string, unknown>,
+    ) => Record<string, unknown>,
+  ): Promise<void>
+}
+type BgChannel =
+  | { kind: 'legacy'; scope: LegacyScope }
+  | { kind: 'live'; refs: BgVolatileConfig }
+  | undefined
+
+/** 当前生效的设置通道（由 {@link installBgSettings} 安装/摘除）。 */
+let channel: BgChannel
+/** 0.2.x：`configEditor` 服务实例（可能晚于 apply 出现，故单独持有而不是塞进 channel）。 */
+let liveEditor: BgConfigEditorLike | undefined
+/** 0.2.x：本插件在 profile 里的 loader 条目（`configEditor.edit` 的寻址目标）。 */
+let liveEntry: unknown
+
+/**
+ * 判断 `apply` 的第二参是不是 0.2.x 的 volatile 引用集合。
+ * 0.1.x 里同样的 Config 只会解析成普通对象（那边没有 `.volatile()`，不会产生引用）。
+ */
+export function isBgVolatileConfig(value: unknown): value is BgVolatileConfig {
+  if (typeof value !== 'object' || value === null) return false
+  const ref = (value as Record<string, unknown>).mode
+  return typeof ref === 'object' && ref !== null && typeof (ref as { get?: unknown }).get === 'function'
+}
+
+/** 取本插件的 fiber（0.2.x 的 settings 策略与 configEditor 都要它寻址）。 */
+function readFiber(ctx: Context): unknown {
+  try {
+    return (ctx as { fiber?: unknown }).fiber
+  } catch {
+    return undefined
+  }
+}
+
+/** 取本插件在 profile 里的 loader 条目（`configEditor.edit` 的第一参）。 */
+function readFiberEntry(ctx: Context): unknown {
+  try {
+    return (ctx as { fiber?: { entry?: unknown } }).fiber?.entry
+  } catch {
+    return undefined
+  }
+}
 
 /**
  * 清空媒体目录缓存 $DSH_HOME/dsh-bg-new/media/ 下已登记的上传/登记文件
@@ -325,21 +427,67 @@ function pickInheritableFields(user: unknown): Partial<BgSectionDoc> | undefined
 }
 
 /**
- * 在 ctx 上安装 'dsh-bg-new' 命名空间注册（随 settings 服务生命周期挂/摘）。
+ * 安装背景设置的宿主接缝（随插件生命周期挂/摘），两种宿主设置模型自动择一：
+ *
+ * - **0.2.x**（`apply` 第二参是 volatile 引用集合）：引用即权威值，写入走
+ *   `configEditor.edit()` 落 profile patch，并让 settings 知道本插件自带面板。
+ * - **0.1.x**（没有引用）：`settings.register(BG_NAMESPACE, schema)` 老路径，
+ *   含 `watch` 清缓存与老命名空间的一次性继承。
+ *
  * 启动时读取并校验 config.json（src/config.ts，进程内缓存），非法字段回退
  * 默认并在此记日志。
- * v0.4.2：命名空间**提交为 mode=off（恢复默认）**时清理媒体目录缓存（#7）——
- * watch 覆盖所有写者（工具 / 客户端设置页 / 外部会话），只对真正提交的 resolved
- * 值生效，幂等（已空目录清 0 次）。
+ *
+ * v0.4.2：背景**提交为 mode=off（恢复默认）**时清理媒体目录缓存（#7）——
+ * 0.1.x 由 `watch` 覆盖所有写者；0.2.x 的引用没有订阅接口，改为激活时判一次 +
+ * 本模块自己写入后判一次，幂等（已空目录清 0 次）。
  * @param ctx - host 插件 ctx（index.ts 入口调用一次）。
- * @returns disposer：摘除注册并清空 activeScope。
+ * @param config - `apply` 的第二参（0.2.x 是 volatile 引用集合；0.1.x 是普通对象/undefined）。
+ * @returns disposer：摘除通道与后台注册。
  */
-export function installBgNamespace(ctx: Context): () => void {
+export function installBgSettings(ctx: Context, config?: unknown): () => void {
   const resolved = loadBgConfig()
   for (const warning of resolved.warnings) ctx.logger.warn(warning)
+
+  // ---- 0.2.x：entry Config（volatile 引用）+ configEditor 写回 ----
+  if (isBgVolatileConfig(config)) {
+    const refs = config
+    channel = { kind: 'live', refs }
+    liveEntry = readFiberEntry(ctx)
+    ctx.logger.info(`dsh-bg-new: settings channel = live (entry Config ${BG_NAMESPACE})`)
+    // 0.2.x 的引用没有订阅接口（cosmokit 的 createVolatile 只给 get()），所以
+    // "提交为 mode=off 就清媒体缓存"只能在**本模块自己写入**之后判断（见 persistBgState）；
+    // 激活时**不**清：$DSH_HOME/dsh-bg-new/media 是各 profile 共用的目录，
+    // 按本 profile 的 mode=off 清一遍会把别的 profile（网页端）正在用的壁纸删掉。
+    // 自带抽屉 UI：告诉 settings 不要为这个 entry 再生成一张自动表单
+    const offSettings = ctx.inject(['settings'], (settingsCtx) => {
+      settingsCtx.effect(() => {
+        const settings = (settingsCtx as {
+          settings?: { configure?: (policy: { auto: boolean }, fiber: unknown) => unknown }
+        }).settings
+        return settings?.configure?.({ auto: false }, readFiber(ctx))
+      }, `dsh-bg-new: ${BG_NAMESPACE} settings policy`)
+    })
+    // 写入通道：配置文件编辑器（headless 部署可能没有 → 回退 state.json）
+    const offEditor = ctx.inject(['configEditor'], (editorCtx) => {
+      liveEditor = (editorCtx as { configEditor?: BgConfigEditorLike }).configEditor
+      editorCtx.effect(() => () => {
+        liveEditor = undefined
+      }, 'dsh-bg-new: config editor detached')
+    })
+    return () => {
+      channel = undefined
+      liveEditor = undefined
+      liveEntry = undefined
+      offEditor()
+      offSettings()
+    }
+  }
+
+  // ---- 0.1.x：settings 命名空间（老路径原样保留） ----
   const disposer = ctx.inject(['settings'], (settingsCtx) => {
     const scope = settingsCtx.settings.register(BG_NAMESPACE, buildBgSectionSchema(resolved.config))
-    activeScope = scope
+    logSafe(settingsCtx, 'info', `dsh-bg-new: settings channel = legacy (namespace ${BG_NAMESPACE})`)
+    channel = { kind: 'legacy', scope }
     // watch：namespace 解析值提交变化时回调 (next)；mode=off → 清理媒体缓存
     const unwatch = scope.watch((next) => {
       const doc = typeof next === 'object' && next !== null && !Array.isArray(next)
@@ -349,14 +497,14 @@ export function installBgNamespace(ctx: Context): () => void {
     })
     // settings 服务脱离时清空，避免 stale scope 指向已注销命名空间
     settingsCtx.effect(() => () => {
-      if (activeScope === scope) activeScope = undefined
+      if (channel?.kind === 'legacy' && channel.scope === scope) channel = undefined
       unwatch()
     }, `dsh-bg-new: ${BG_NAMESPACE} scope detached`)
     // 改名兼容：把老命名空间的用户层一次性继承过来（尽力而为，失败只记日志）
     inheritLegacyBgNamespace(settingsCtx, resolved.config, scope)
   })
   return () => {
-    activeScope = undefined
+    channel = undefined
     disposer()
   }
 }
@@ -367,30 +515,96 @@ export interface BgPersistResult {
 }
 
 /**
- * 持久化一次背景状态：settings 可用写命名空间（按字段存在性 merge，
- * 不动只读镜像字段），否则写 state.json。
+ * 持久化一次背景状态（按字段存在性 merge，不动只读镜像字段）：
+ * - 0.1.x → 写 settings 命名空间的 user 层（`scope.update`）；
+ * - 0.2.x → 并经 `configEditor.edit` 合并进本 entry 的 profile 配置；
+ * - 都没有 → 写 state.json 回退镜像。
  * @param state - 背景状态；fit/textScheme/loop/mediaKey 为可选，仅当存在于
  *   state 时才写（避免每次 apply 都清掉/覆盖上次用户选择）。
  */
 export async function persistBgState(state: BgState): Promise<BgPersistResult> {
-  if (activeScope !== undefined) {
-    const patch: Partial<BgSectionDoc> = { mode: state.mode, value: state.value }
-    if (state.fit !== undefined) patch.fit = state.fit
-    if (state.textScheme !== undefined) patch.textScheme = state.textScheme
-    if (state.loop !== undefined) patch.loop = state.loop
-    if (state.mediaKey !== undefined) patch.mediaKey = state.mediaKey
-    if (state.opacity !== undefined) patch.opacity = state.opacity
-    if (state.posX !== undefined) patch.posX = state.posX
-    if (state.posY !== undefined) patch.posY = state.posY
-    if (state.scale !== undefined) patch.scale = state.scale
-    if (state.zoom !== undefined) patch.zoom = state.zoom
-    if (state.volume !== undefined) patch.volume = state.volume
-    if (state.glass !== undefined) patch.glass = state.glass
-    await activeScope.update(patch)
+  const patch: Partial<BgSectionDoc> = { mode: state.mode, value: state.value }
+  if (state.fit !== undefined) patch.fit = state.fit
+  if (state.textScheme !== undefined) patch.textScheme = state.textScheme
+  if (state.loop !== undefined) patch.loop = state.loop
+  if (state.mediaKey !== undefined) patch.mediaKey = state.mediaKey
+  if (state.opacity !== undefined) patch.opacity = state.opacity
+  if (state.posX !== undefined) patch.posX = state.posX
+  if (state.posY !== undefined) patch.posY = state.posY
+  if (state.scale !== undefined) patch.scale = state.scale
+  if (state.zoom !== undefined) patch.zoom = state.zoom
+  if (state.volume !== undefined) patch.volume = state.volume
+  if (state.glass !== undefined) patch.glass = state.glass
+
+  // 0.1.x：写命名空间 user 层
+  if (channel?.kind === 'legacy') {
+    await channel.scope.update(patch)
     return { target: 'settings' }
   }
+
+  // 0.2.x：把 patch 合并进本 entry 的 profile 配置（configEditor 落 cordis.patch.yml）
+  if (channel?.kind === 'live') {
+    const editor = liveEditor
+    const entry = liveEntry
+    if (editor !== undefined && entry !== undefined && entry !== null) {
+      await editor.edit(entry, (current) => {
+        const next = typeof current === 'object' && current !== null && !Array.isArray(current)
+          ? { ...(current as Record<string, unknown>) }
+          : {}
+        for (const [field, value] of Object.entries(patch)) next[field] = value
+        return next
+      })
+      if (state.mode === 'off') pruneMediaCache()
+      return { target: 'settings' }
+    }
+    // 没有配置文件编辑器的 0.2.x 部署：退回文件镜像，行为与 0.1.x 无 settings 时一致
+    writeState(state)
+    return { target: 'file' }
+  }
+
   writeState(state)
   return { target: 'file' }
+}
+
+/**
+ * 0.2.x：直接从 volatile 引用读出当前背景状态。
+ * 引用由 loader 按 schema 解析（默认值已烘焙），这里只做类型/枚举兜底。
+ */
+function readLiveState(refs: BgVolatileConfig): BgState {
+  const cfg = loadBgConfig().config
+  const text = (field: keyof BgSectionDoc, fallback: string): string => {
+    const value = refs[field]?.get?.()
+    return typeof value === 'string' ? value : fallback
+  }
+  const num = (field: keyof BgSectionDoc, fallback: number): number => {
+    const value = refs[field]?.get?.()
+    return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+  }
+  const bool = (field: keyof BgSectionDoc, fallback: boolean): boolean => {
+    const value = refs[field]?.get?.()
+    return typeof value === 'boolean' ? value : fallback
+  }
+  const mode = text('mode', 'off')
+  const fit = text('fit', '')
+  const scheme = text('textScheme', '')
+  return {
+    mode: (BG_MODES as readonly string[]).includes(mode) ? mode as BgMode : 'off',
+    value: text('value', ''),
+    fit: (BG_FITS as readonly string[]).includes(fit) ? fit as BgFit : cfg.defaultFit,
+    textScheme: (BG_TEXT_SCHEMES as readonly string[]).includes(scheme)
+      ? scheme as BgTextScheme
+      : cfg.defaultTextScheme,
+    loop: bool('loop', cfg.defaultLoop),
+    mediaKey: text('mediaKey', ''),
+    opacity: num('opacity', 1),
+    posX: num('posX', 50),
+    posY: num('posY', 50),
+    scale: num('scale', BG_SCALE_DEFAULT),
+    zoom: num('zoom', BG_ZOOM_DEFAULT),
+    volume: num('volume', 1),
+    glass: bool('glass', BG_GLASS_DEFAULT),
+    updatedAt: '',
+  }
 }
 
 /**
@@ -399,8 +613,9 @@ export async function persistBgState(state: BgState): Promise<BgPersistResult> {
  * 并用 config 默认补齐可选字段。供 tool / style.ts / media 路由读取。
  */
 export function readBgState(): BgState {
-  if (activeScope !== undefined) {
-    const doc = activeScope.get()
+  if (channel?.kind === 'live') return readLiveState(channel.refs)
+  if (channel?.kind === 'legacy') {
+    const doc = channel.scope.get()
     return {
       mode: doc.mode,
       value: doc.value,

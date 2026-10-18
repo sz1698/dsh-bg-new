@@ -20,6 +20,23 @@ DSH（DeepSeek Harness）网页界面换背景插件：点左侧栏（Settings �
 - 🌗 **文字方案**：按背景亮度自动推断，也可手动指定亮 / 暗文字方案
 - 🔒 **媒体只在本机**：上传的图片与视频保存在本机数据目录，由插件自己的路由伺服（支持 Range，视频可拖动进度），**不会上传到任何云端服务**
 
+## 兼容性（DSH 0.1.x / 0.2.x）
+
+v0.8.0 起**同一份产物同时支持两代宿主**，插件在运行时自己挑通道：
+
+| | DSH 0.1.x（如 `dsh web` 0.1.2-rc.1） | DSH 0.2.x（如桌面端 0.2.1-rc.2） |
+| --- | --- | --- |
+| 设置通道 | settings 命名空间 `dsh-bg-new`（宿主 `settings.register`） | 插件 entry 的 `Config`（字段全部 `.volatile()`），客户端按 entry id 取 `configForms.get('dsh-bg-new')` |
+| 背景值存哪 | `$DSH_HOME/settings.yaml` 的 `dsh-bg-new:` 段 | 该 profile 的 `cordis.patch.yml` 里 `dsh-bg-new` 条目的 `config` |
+| 宿主写回 | `scope.update(patch)` | `ctx.configEditor.edit(entry, fn)` |
+| 降级兜底 | 无 settings provider 时写 `$DSH_HOME/dsh-bg-new/state.json` | 没有 `configEditor`（headless 等）时同左 |
+
+判定全在运行时完成（`apply` 第二参是否为 volatile 引用、有没有 `configEditor`），所以升级 DSH 不需要换插件版本。
+
+> 0.2.x 的宿主会把插件的 `peerDependencies`（`@deepseek-ai/schemastery`、`@deepseek-ai/dsh-tools`、`@deepseek-ai/dsh-home-paths`）解析到**运行时自带那一份**；插件目录里自带的 `node_modules/` 只服务 0.1.x。**别为了"省依赖"删掉它** —— 0.1.x 上没有运行时重定向，删了会 `Cannot find package`。
+
+如果桌面端之前因为插件起不来（报 `web boot: 1 entry did not activate`），那是 v0.7.0 硬等已被 0.2.x 移除的 `settingsScope` 所致，升到 v0.8.0 即可；应急可在崩溃对话框里点「禁用第三方插件、备份 profile patch 并重启」。
+
 ## 安装
 
 前置：已装好 DSH（`dsh web` 能正常运行）。
@@ -31,6 +48,8 @@ dsh plugin --profile web add github:sz1698/dsh-bg-new
 ```
 
 装完**重启应用**（或重启 `dsh web`），再刷新浏览器。
+
+> 桌面端（DeepSeek Harness Desktop，DSH 0.2.x）用的是 `desktop` profile：把命令里的 `--profile web` 换成 `--profile desktop`。
 
 `dsh` 不在 PATH 时：
 

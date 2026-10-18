@@ -227,9 +227,21 @@ interface LocaleLike {
 }
 interface CtxLike {
   slots: SlotsLike
+  /**
+   * 0.1.x 的设置服务：按命名空间绑定出一个 scope（读写同一份 settings 文档）。
+   * 0.2.x 已整体移除（换成下面的 `configForms`）。
+   */
   settingsScope?: { bind(options: { namespace: string }): SettingsScopeLike }
+  /**
+   * 0.2.x 的设置服务：按 **host 插件 entry id** 取共享配置表单。
+   * 快照形状与 SettingsScopeLike 一致（value/subscribe/set/unset/mutate），
+   * 所以本插件两代服务共用同一套读写代码。
+   */
+  configForms?: { get(entryId: string): SettingsScopeLike }
   locale?: LocaleLike
   effect(fn: () => unknown): unknown
+  /** cordis 的延迟注入：服务出现时才跑回调（两代设置服务只在其中一代存在）。 */
+  inject?(deps: string[], callback: (ctx: CtxLike) => unknown): unknown
 }
 
 // ---- 预设皮肤（仅 color/gradient/off；v0.3 不加外部视频/图片预设） ----
@@ -1278,19 +1290,72 @@ export async function bgUploadLocalFile(
 
 // ---- 插件入口 ----
 
-export const inject = ['slots', 'settingsScope', 'locale']
+/**
+ * v0.8.0：**不再**把 `settingsScope` 写进 inject。
+ *
+ * 0.2.x 的客户端彻底移除了该服务，硬等它会让本 entry 永远 pending ——
+ * 桌面端 0.2.1-rc.2 的 web boot 会因此直接判定启动失败（"1 entry did not
+ * activate"）。改成只等两代都存在的基础服务（slots / locale），设置通道用
+ * `ctx.inject` 延迟绑定：哪一代的服务出现就绑哪一个（见 apply 里的 bindScope）。
+ */
+export const inject = ['slots', 'locale']
 
 export function apply(ctx: CtxLike): void {
+  /** 设置通道（0.2.x: entry Config 表单；0.1.x: 命名空间 scope）。 */
   let scope: SettingsScopeLike | undefined
-  try {
-    scope = ctx.settingsScope?.bind({ namespace: 'dsh-bg-new' })
-  } catch {
-    scope = undefined
+  /** 通道订阅的释放器（绑定成功时建立，随 ctx 卸载释放）。 */
+  let scopeOff: (() => void) | undefined
+
+  /**
+   * 绑定设置通道：先到先得（同一次运行里两代服务只会出现一个）。
+   * @param next - 已解析出的 scope/表单；undefined 表示该服务缺席。
+   */
+  function bindScope(next: SettingsScopeLike | undefined): void {
+    if (next === undefined || scope !== undefined) return
+    scope = next
+    try {
+      const off = next.subscribe(adopt)
+      scopeOff = typeof off === 'function' ? off : undefined
+    } catch {
+      scopeOff = undefined
+    }
+    adopt()
   }
+
+  /** 从某个已就绪的 ctx 上取设置通道（先 0.2.x 表单，再 0.1.x 命名空间）。 */
+  function bindFrom(source: CtxLike): void {
+    try {
+      bindScope(source.configForms?.get?.('dsh-bg-new'))
+    } catch {
+      // 0.2.x 表单不可用 → 交给 0.1.x 分支
+    }
+    try {
+      bindScope(source.settingsScope?.bind?.({ namespace: 'dsh-bg-new' }))
+    } catch {
+      bindScope(undefined)
+    }
+  }
+
+  if (typeof ctx.inject === 'function') {
+    // 两代服务各起一个延迟注入：哪个存在就绑哪个（不存在的那个回调永不触发）
+    ctx.inject(['configForms'], (child) => bindFrom(child))
+    ctx.inject(['settingsScope'], (child) => bindFrom(child))
+  } else {
+    bindFrom(ctx)
+  }
+
   // v0.4.1：把模块级单一防抖 flush 接到本 ctx 的实现（需要 scope / 镜像读写）
   runFlushImpl = runFlushNow
   const t = ctx.locale ? ctx.locale.bind('settings.dsh-bg-new') : undefined
   const text = (key: string): string => (t ? t(key) : key)
+
+  /** 设置通道是否已给出可用值（0.1.x 的快照没有 status 字段 → 视为就绪）。 */
+  function scopeReady(): boolean {
+    const raw = scope?.getSnapshot?.()
+    if (raw === null || raw === undefined || typeof raw !== 'object') return false
+    const status = (raw as { status?: unknown }).status
+    return typeof status !== 'string' || status === 'ready'
+  }
 
   /** 从 scope 快照取出 section（兼容两种形状：平铺字段 / {value:{...}}）。 */
   function readScopeSection(): Record<string, unknown> {
@@ -1364,6 +1429,9 @@ export function apply(ctx: CtxLike): void {
   }
 
   function adopt(): void {
+    // 0.2.x 的 configForm 快照带 status（loading / ready / unavailable）：
+    // 未就绪时不能拿"空 section"当权威，否则启动瞬间会用默认值刷掉本地壁纸。
+    if (scope !== undefined && !scopeReady()) return
     const section = readScopeSection()
     const mode = sectionString(section, 'mode', 'off')
     const value = sectionString(section, 'value', '')
@@ -1676,15 +1744,11 @@ export function apply(ctx: CtxLike): void {
   }, BgDrawer))
 
   ctx.effect(() => {
-    let off: (() => void) | undefined
-    try {
-      off = scope?.subscribe(adopt)
-    } catch {
-      off = undefined
-    }
+    // 订阅由 bindScope 建立（设置服务可能晚于 apply 出现），这里只订阅一次初值。
     adopt()
     return () => {
-      off?.()
+      scopeOff?.()
+      scopeOff = undefined
       runFlushImpl = null
       restoreBg()
       // v0.6.0：卸载时结束交互期降透明 + 关闭抽屉
